@@ -5,6 +5,8 @@ package transport
 
 import (
 	"errors"
+	"log/slog"
+	"os"
 )
 
 // MessageHandler represents a function that handles incoming messages
@@ -35,13 +37,19 @@ type Transport interface {
 
 	// SetDebugHandler sets a handler for debug messages
 	SetDebugHandler(handler DebugHandler)
+
+	// SetLogger sets the structured logger
+	SetLogger(logger *slog.Logger)
+
+	// GetLogger returns the current logger
+	GetLogger() *slog.Logger
 }
 
 // BaseTransport provides common transport functionality
 type BaseTransport struct {
 	handler      MessageHandler
 	debugHandler DebugHandler
-	// Additional fields can be added as needed
+	logger       *slog.Logger
 }
 
 // SetMessageHandler sets the message handler
@@ -57,6 +65,22 @@ func (t *BaseTransport) SetDebugHandler(handler DebugHandler) {
 // GetDebugHandler returns the current debug handler
 func (t *BaseTransport) GetDebugHandler() DebugHandler {
 	return t.debugHandler
+}
+
+// SetLogger sets the structured logger
+func (t *BaseTransport) SetLogger(logger *slog.Logger) {
+	t.logger = logger
+}
+
+// GetLogger returns the current logger, creating a default one if none is set
+func (t *BaseTransport) GetLogger() *slog.Logger {
+	if t.logger == nil {
+		// Create a default logger that outputs to stderr with INFO level
+		t.logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}))
+	}
+	return t.logger
 }
 
 // HandleMessage handles an incoming message

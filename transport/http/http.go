@@ -102,8 +102,8 @@ func (t *Transport) Start() error {
 	// Start the server in a goroutine
 	go func() {
 		if err := t.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			// Log error
-			fmt.Printf("HTTP server error: %v\n", err)
+			// Log error using structured logging
+			t.GetLogger().Error("HTTP server error", "error", err)
 		}
 	}()
 

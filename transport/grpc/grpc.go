@@ -317,8 +317,7 @@ func (t *Transport) getServerOptions() []grpc.ServerOption {
 		creds, err := t.getServerTLSCredentials()
 		if err != nil {
 			// Log the error but continue with insecure credentials
-			// TODO: Add proper logging
-			fmt.Printf("Failed to load TLS credentials: %v, continuing with insecure connection\n", err)
+			t.GetLogger().Warn("Failed to load TLS credentials, continuing with insecure connection", "error", err)
 		} else {
 			opts = append(opts, grpc.Creds(creds))
 		}
@@ -346,8 +345,7 @@ func (t *Transport) getClientOptions() []grpc.DialOption {
 		creds, err := t.getClientTLSCredentials()
 		if err != nil {
 			// Log the error but continue with insecure credentials
-			// TODO: Add proper logging
-			fmt.Printf("Failed to load TLS credentials: %v, continuing with insecure connection\n", err)
+			t.GetLogger().Warn("Failed to load TLS credentials, continuing with insecure connection", "error", err)
 			opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		} else {
 			opts = append(opts, grpc.WithTransportCredentials(creds))

@@ -207,9 +207,8 @@ func (t *Transport) acceptConnections() {
 			if strings.Contains(err.Error(), "use of closed network connection") {
 				return
 			}
-			// Log error and continue
-			// Log error and continue
-			fmt.Printf("Unix Socket Transport: Error accepting connection: %v\n", err)
+			// Log error and continue using structured logging
+			t.GetLogger().Error("Unix Socket Transport: Error accepting connection", "error", err)
 			continue
 		}
 
@@ -242,7 +241,7 @@ func (t *Transport) handleServerConnection(conn net.Conn) {
 		if err != nil {
 			// Connection closed or error
 			if err != io.EOF {
-				fmt.Printf("Unix Socket Transport: Error reading from connection: %v\n", err)
+				t.GetLogger().Error("Unix Socket Transport: Error reading from connection", "error", err)
 			}
 			return
 		}
@@ -254,7 +253,7 @@ func (t *Transport) handleServerConnection(conn net.Conn) {
 		response, err := t.HandleMessage(message)
 		if err != nil {
 			// Log error
-			fmt.Printf("Unix Socket Transport: Error handling message: %v\n", err)
+			t.GetLogger().Error("Unix Socket Transport: Error handling message", "error", err)
 			// Try to send error response if possible
 			errorResp := createErrorResponse(message, err)
 			if errorResp != nil {
@@ -267,7 +266,7 @@ func (t *Transport) handleServerConnection(conn net.Conn) {
 			// Send response back to the client
 			_, err = conn.Write(append(response, '\n'))
 			if err != nil {
-				fmt.Printf("Unix Socket Transport: Error writing response: %v\n", err)
+				t.GetLogger().Error("Unix Socket Transport: Error writing response", "error", err)
 				return
 			}
 		}
