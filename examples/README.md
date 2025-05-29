@@ -80,8 +80,8 @@ Since this is a stdio-based server, you can interact with it by sending JSON-RPC
 {
   "jsonrpc": "2.0",
   "id": 4,
-  "method": "prompts/render",
-  "params": { "name": "greeting", "args": { "name": "Example User" } }
+  "method": "prompts/get",
+  "params": { "name": "greeting", "arguments": { "name": "Example User" } }
 }
 ```
 
