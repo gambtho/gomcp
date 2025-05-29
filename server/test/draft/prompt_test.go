@@ -67,7 +67,7 @@ func TestPromptDraft(t *testing.T) {
 		{
 			name:           "get prompt with arguments",
 			method:         "prompts/get",
-			params:         json.RawMessage(`{"name":"test-prompt-draft","variables":{"topic":"neural networks"}}`),
+			params:         json.RawMessage(`{"name":"test-prompt-draft","arguments":{"topic":"neural networks"}}`),
 			expectedStatus: 0,
 			validateResult: func(t *testing.T, result map[string]interface{}) {
 				// Validate prompt structure according to draft spec
@@ -121,14 +121,14 @@ func TestPromptDraft(t *testing.T) {
 		{
 			name:           "get prompt with missing argument",
 			method:         "prompts/get",
-			params:         json.RawMessage(`{"name":"test-prompt-draft","variables":{}}`),
+			params:         json.RawMessage(`{"name":"test-prompt-draft","arguments":{}}`),
 			expectedStatus: -32602, // Invalid params
 			validateResult: nil,
 		},
 		{
 			name:           "get nonexistent prompt",
 			method:         "prompts/get",
-			params:         json.RawMessage(`{"name":"nonexistent-prompt","variables":{}}`),
+			params:         json.RawMessage(`{"name":"nonexistent-prompt","arguments":{}}`),
 			expectedStatus: -32602, // Invalid params
 			validateResult: nil,
 		},

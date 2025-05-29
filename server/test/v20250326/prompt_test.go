@@ -92,7 +92,7 @@ func TestPromptV20250326(t *testing.T) {
 		"method":  "prompts/get",
 		"params": map[string]interface{}{
 			"name": "test-prompt-2025-03-26",
-			"variables": map[string]interface{}{
+			"arguments": map[string]interface{}{
 				"topic":        "artificial intelligence",
 				"example_type": "practical",
 			},
@@ -178,7 +178,7 @@ func TestPromptV20250326(t *testing.T) {
 		"method":  "prompts/get",
 		"params": map[string]interface{}{
 			"name": "test-prompt-2025-03-26",
-			"variables": map[string]interface{}{
+			"arguments": map[string]interface{}{
 				"topic": "artificial intelligence",
 				// Missing example_type
 			},

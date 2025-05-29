@@ -277,8 +277,12 @@ func (s *serverImpl) ProcessPromptList(ctx *Context) (interface{}, error) {
 
 // SubstituteVariables replaces all {{variable}} patterns in the content string
 // with their corresponding values from the variables map.
-// Returns an error if a required variable is missing from the map.
+// If a variable is missing, the placeholder is left unchanged.
 func SubstituteVariables(content string, variables map[string]interface{}) (string, error) {
+	if variables == nil {
+		return content, nil
+	}
+
 	re := regexp.MustCompile(`\{\{([^}]+)\}\}`)
 
 	result := content
@@ -293,7 +297,8 @@ func SubstituteVariables(content string, variables map[string]interface{}) (stri
 		varValue, exists := variables[varName]
 
 		if !exists {
-			return "", NewInvalidParametersError(fmt.Sprintf("missing required variable: %s", varName))
+			// Leave the placeholder unchanged if variable is missing
+			continue
 		}
 
 		// Convert the value to string
@@ -354,7 +359,7 @@ func (s *serverImpl) ProcessPromptRequest(ctx *Context) (interface{}, error) {
 	s.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("prompt not found: %s", promptName)
+		return nil, NewInvalidParametersError(fmt.Sprintf("prompt not found: %s", promptName))
 	}
 
 	// Validate required arguments
@@ -375,15 +380,19 @@ func (s *serverImpl) ProcessPromptRequest(ctx *Context) (interface{}, error) {
 			return nil, err
 		}
 
-		// Create a message from the template
+		// Create a message from the template with proper content format
 		renderedTemplates = append(renderedTemplates, map[string]interface{}{
-			"role":    template.Role,
-			"content": renderedContent,
+			"role": template.Role,
+			"content": map[string]interface{}{
+				"type": "text",
+				"text": renderedContent,
+			},
 		})
 	}
 
-	// Return the rendered prompt
+	// Return the rendered prompt with description
 	return map[string]interface{}{
-		"messages": renderedTemplates,
+		"description": prompt.Description,
+		"messages":    renderedTemplates,
 	}, nil
 }

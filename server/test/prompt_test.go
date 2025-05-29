@@ -179,7 +179,7 @@ func TestProcessPromptRequest(t *testing.T) {
 		Request: &server.Request{
 			ID:     "1",
 			Method: "prompts/get",
-			Params: json.RawMessage(`{"name":"test-prompt","variables":{"topic":"Go programming"}}`),
+			Params: json.RawMessage(`{"name":"test-prompt","arguments":{"topic":"Go programming"}}`),
 		},
 		Response: &server.Response{
 			JSONRPC: "2.0",
@@ -235,14 +235,14 @@ func TestProcessPromptRequest(t *testing.T) {
 	}
 
 	// Test missing required argument
-	ctx.Request.Params = json.RawMessage(`{"name":"test-prompt","variables":{}}`)
+	ctx.Request.Params = json.RawMessage(`{"name":"test-prompt","arguments":{}}`)
 	_, err = s.GetServer().ProcessPromptRequest(ctx)
 	if err == nil {
 		t.Error("Expected error for missing required argument 'topic', got nil")
 	}
 
 	// Test with missing prompt
-	ctx.Request.Params = json.RawMessage(`{"name":"missing-prompt","variables":{}}`)
+	ctx.Request.Params = json.RawMessage(`{"name":"missing-prompt","arguments":{}}`)
 	_, err = s.GetServer().ProcessPromptRequest(ctx)
 	if err == nil {
 		t.Error("Expected error for missing prompt, got nil")

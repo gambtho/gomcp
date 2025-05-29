@@ -92,7 +92,7 @@ func TestPromptV20241105(t *testing.T) {
 		"method":  "prompts/get",
 		"params": map[string]interface{}{
 			"name": "test-prompt-2024-11-05",
-			"variables": map[string]interface{}{
+			"arguments": map[string]interface{}{
 				"topic": "databases",
 			},
 		},
@@ -177,7 +177,7 @@ func TestPromptV20241105(t *testing.T) {
 		"method":  "prompts/get",
 		"params": map[string]interface{}{
 			"name":      "test-prompt-2024-11-05",
-			"variables": map[string]interface{}{},
+			"arguments": map[string]interface{}{},
 		},
 	}
 

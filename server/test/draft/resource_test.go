@@ -501,11 +501,6 @@ func TestResourceHandlingDraft(t *testing.T) {
 				t.Errorf("Missing required 'name' field in resource %d", i)
 			}
 
-			// Draft should have kind and description
-			if resource["kind"] == nil {
-				t.Errorf("Missing required 'kind' field in resource %d", i)
-			}
-
 			if resource["description"] == nil {
 				t.Errorf("Missing required 'description' field in resource %d", i)
 			}

@@ -495,6 +495,11 @@ func (s *serverImpl) ProcessResourceList(ctx *Context) (interface{}, error) {
 	// Convert resources to the expected format
 	i := 0
 	for path, resource := range s.resources {
+		// Skip template resources - they should only appear in resources/templates/list
+		if resource.IsTemplate {
+			continue
+		}
+
 		// Skip if we haven't reached the cursor yet
 		if cursor != "" && path <= cursor {
 			continue
@@ -520,11 +525,6 @@ func (s *serverImpl) ProcessResourceList(ctx *Context) (interface{}, error) {
 			"name":        name,
 			"description": resource.Description,
 			"mimeType":    mimeType,
-		}
-
-		// Add isTemplate if this is a template resource
-		if resource.IsTemplate {
-			resourceInfo["isTemplate"] = true
 		}
 
 		resources = append(resources, resourceInfo)

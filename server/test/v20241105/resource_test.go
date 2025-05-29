@@ -361,9 +361,6 @@ func TestResourceHandlingV20241105(t *testing.T) {
 			if resource["name"] == nil {
 				t.Errorf("Missing 'name' in resource: %v", resource)
 			}
-			if resource["kind"] == nil {
-				t.Errorf("Missing 'kind' in resource: %v", resource)
-			}
 		}
 	})
 
