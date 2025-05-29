@@ -32,8 +32,8 @@ func TestJSONRPCMarshaling(t *testing.T) {
 		t.Errorf("Expected jsonrpc 2.0, got %v", reqMap["jsonrpc"])
 	}
 
-	if reqMap["method"] != "tool/execute" {
-		t.Errorf("Expected method tool/execute, got %v", reqMap["method"])
+	if reqMap["method"] != "tools/call" {
+		t.Errorf("Expected method tools/call, got %v", reqMap["method"])
 	}
 
 	if reqMap["id"] != float64(1) {
@@ -51,8 +51,8 @@ func TestJSONRPCMarshaling(t *testing.T) {
 		t.Errorf("Expected Version 2.0, got %v", parsedReq.Version)
 	}
 
-	if parsedReq.Method != "tool/execute" {
-		t.Errorf("Expected Method tool/execute, got %v", parsedReq.Method)
+	if parsedReq.Method != "tools/call" {
+		t.Errorf("Expected Method tools/call, got %v", parsedReq.Method)
 	}
 
 	if parsedReq.ID != float64(1) {

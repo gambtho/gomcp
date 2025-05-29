@@ -652,21 +652,11 @@ func SetupMockTransport(version string) *MockTransport {
 		IsRequestMethod("roots/remove"),
 	)
 
-	// Add default response for tool/call or tool/execute
-	defaultToolResponse := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      0, // Will be overridden by actual request ID
-		"result": map[string]interface{}{
-			"output": "Default tool response",
-		},
-	}
-	toolJSON, _ := json.Marshal(defaultToolResponse)
+	// Add default response for tools/call
 	m.QueueConditionalResponse(
-		toolJSON,
+		[]byte(`{"jsonrpc":"2.0","id":0,"result":null}`),
 		nil,
-		func(msg []byte) bool {
-			return IsRequestMethod("tool/execute")(msg) || IsRequestMethod("tool/call")(msg)
-		},
+		IsRequestMethod("tools/call"),
 	)
 
 	// Add default response for prompt/get

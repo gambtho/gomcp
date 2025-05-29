@@ -213,8 +213,8 @@ func TestCallTool_v20241105(t *testing.T) {
 	}
 
 	method, ok := sentRequest["method"].(string)
-	if !ok || method != "tool/execute" {
-		t.Errorf("Expected method to be tool/execute, got %v", sentRequest)
+	if !ok || method != "tools/call" {
+		t.Errorf("Expected method to be tools/call, got %v", sentRequest)
 	}
 }
 

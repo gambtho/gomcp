@@ -247,7 +247,7 @@ func isToolNameInRequest(req []byte, toolName string) bool {
 		return false
 	}
 
-	if method, ok := request["method"].(string); !ok || method != "tool/execute" {
+	if method, ok := request["method"].(string); !ok || method != "tools/call" {
 		return false
 	}
 

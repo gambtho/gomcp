@@ -8,7 +8,7 @@ func NewToolRequest(id interface{}, name string, args map[string]interface{}) *J
 	return &JSONRPC{
 		Version: "2.0",
 		ID:      id,
-		Method:  "tool/execute",
+		Method:  "tools/call",
 		Params: ToolParams{
 			Name:      name,
 			Arguments: args,

@@ -392,7 +392,7 @@ func TestToolOperations(t *testing.T) {
 				}
 
 				// Verify the request format
-				AssertMethodEquals(t, m.LastSentMessage, "tool/execute")
+				AssertMethodEquals(t, m.LastSentMessage, "tools/call")
 
 				// Check tool name and arguments
 				var request map[string]interface{}

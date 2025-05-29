@@ -30,8 +30,8 @@ func TestSimpleToolRequest(t *testing.T) {
 		t.Errorf("Expected jsonrpc field to be '2.0', got %v", reqMap["jsonrpc"])
 	}
 
-	if reqMap["method"] != "tool/execute" {
-		t.Errorf("Expected method to be 'tool/execute', got %v", reqMap["method"])
+	if reqMap["method"] != "tools/call" {
+		t.Errorf("Expected method to be 'tools/call', got %v", reqMap["method"])
 	}
 
 	// Check params structure

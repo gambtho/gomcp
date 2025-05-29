@@ -228,8 +228,8 @@ func TestStructEncoding(t *testing.T) {
 	}
 
 	// Check method
-	if requestMap["method"] != "tool/execute" {
-		t.Errorf("Expected method tool/execute, got %v", requestMap["method"])
+	if requestMap["method"] != "tools/call" {
+		t.Errorf("Expected method tools/call, got %v", requestMap["method"])
 	}
 
 	// Create an error response

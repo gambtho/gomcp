@@ -85,8 +85,8 @@ func TestBuilderFunctions(t *testing.T) {
 		"y":         3,
 	})
 
-	if toolReq.Method != "tool/execute" {
-		t.Errorf("Expected Method 'tool/execute', got %s", toolReq.Method)
+	if toolReq.Method != "tools/call" {
+		t.Errorf("Expected Method 'tools/call', got %s", toolReq.Method)
 	}
 
 	// Test NewErrorResponse

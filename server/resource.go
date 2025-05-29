@@ -464,7 +464,7 @@ func (s *serverImpl) ProcessResourceRequest(ctx *Context) (interface{}, error) {
 		version = "2025-03-26"
 	}
 
-	return formatResourceResponse(result, version), nil
+	return FormatResourceResponse(uri, result, version), nil
 }
 
 // ProcessResourceList processes a resource list request.

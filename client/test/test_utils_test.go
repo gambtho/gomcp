@@ -192,8 +192,8 @@ func TestToolRequest(t *testing.T) {
 
 	request := ToolRequest("test-tool", args)
 
-	if request["method"] != "tool/execute" {
-		t.Errorf("Expected method to be tool/execute, got %v", request["method"])
+	if request["method"] != "tools/call" {
+		t.Errorf("Expected method to be tools/call, got %v", request["method"])
 	}
 
 	params, ok := request["params"].(map[string]interface{})
@@ -451,8 +451,8 @@ func TestHelperFunctions(t *testing.T) {
 func TestFactories(t *testing.T) {
 	// Test ToolRequest factory
 	toolReq := ToolRequest("test-tool", map[string]interface{}{"arg": "value"})
-	if toolReq["method"] != "tool/execute" {
-		t.Errorf("Expected method to be 'tool/execute', got %v", toolReq["method"])
+	if toolReq["method"] != "tools/call" {
+		t.Errorf("Expected method to be 'tools/call', got %v", toolReq["method"])
 	}
 
 	params, ok := toolReq["params"].(map[string]interface{})

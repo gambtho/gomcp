@@ -10,7 +10,7 @@ func ToolRequest(name string, args map[string]interface{}) map[string]interface{
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
-		"method":  "tool/execute",
+		"method":  "tools/call",
 		"params": map[string]interface{}{
 			"name":      name,
 			"arguments": args,
@@ -23,7 +23,7 @@ func ToolRequestWithID(id interface{}, name string, args map[string]interface{})
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      id,
-		"method":  "tool/execute",
+		"method":  "tools/call",
 		"params": map[string]interface{}{
 			"name":      name,
 			"arguments": args,
