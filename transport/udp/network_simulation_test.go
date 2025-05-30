@@ -63,9 +63,9 @@ func TestPacketLoss(t *testing.T) {
 	go func() {
 		defer proxyWg.Done()
 		defer func() {
-			// Recover from potential panics when closing channels
 			if r := recover(); r != nil {
-				// Don't log here as test might be complete
+				// Log panic but don't fail the test
+				t.Logf("Proxy goroutine panicked: %v", r)
 			}
 		}()
 
@@ -801,7 +801,8 @@ func clientToServerProxy(t *testing.T, proxyConn *net.UDPConn, serverAddr string
 			defer func() {
 				// Recover from potential panics
 				if r := recover(); r != nil {
-					// Don't log as test might be complete
+					// Log panic but don't fail the test
+					t.Logf("Proxy goroutine panicked: %v", r)
 				}
 			}()
 

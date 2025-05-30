@@ -879,13 +879,13 @@ func ValidateConstraints(v *Validator, fieldName string, value interface{}, sche
 	case "number", "integer":
 		// Convert to float64 for numeric validation
 		var numValue float64
-		switch value.(type) {
+		switch value := value.(type) {
 		case float64:
-			numValue = value.(float64)
+			numValue = value
 		case float32:
-			numValue = float64(value.(float32))
+			numValue = float64(value)
 		case int:
-			numValue = float64(value.(int))
+			numValue = float64(value)
 		case int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 			numValue = reflect.ValueOf(value).Float()
 		default:

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -534,7 +535,8 @@ func (t *Transport) sendSinglePacket(message []byte, messageID uint32) error {
 		}
 		defer func() {
 			if err := t.conn.SetWriteDeadline(time.Time{}); err != nil {
-				// Log error but don't fail the operation
+				// Log error but continue with cleanup
+				slog.Default().Error("Failed to clear write deadline", "error", err)
 			}
 		}()
 	}
@@ -601,7 +603,8 @@ func (t *Transport) sendFragmentedMessage(message []byte, messageID uint32, maxP
 			}
 			defer func() {
 				if err := t.conn.SetWriteDeadline(time.Time{}); err != nil {
-					// Log error but don't fail the operation
+					// Log error but continue with cleanup
+					slog.Default().Error("Failed to clear write deadline", "error", err)
 				}
 			}()
 		}

@@ -284,7 +284,9 @@ func TestErrorHandling(t *testing.T) {
 
 	// Test starting server with invalid socket path
 	serverTransport := NewTransport(invalidPath)
-	err = serverTransport.Initialize()
+	if err := serverTransport.Initialize(); err != nil {
+		t.Logf("Note: Initialize failed with invalid socket path: %v", err)
+	}
 	// Initialize might not fail on some platforms
 
 	// Start should fail on most platforms

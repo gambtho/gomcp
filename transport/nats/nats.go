@@ -7,6 +7,7 @@ package nats
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -125,9 +126,8 @@ func (t *Transport) Initialize() error {
 
 	// Configure TLS if provided
 	if t.tlsConfig != nil {
-		// TLS configuration would be implemented here
-		// opts = append(opts, nats.ClientCert(t.tlsConfig.CertFile, t.tlsConfig.KeyFile))
-		// opts = append(opts, nats.RootCAs(t.tlsConfig.CAFile))
+		// TLS configuration is set but not used in this context
+		// TODO: Implement TLS configuration if needed
 	}
 
 	// Connect to NATS server
@@ -154,8 +154,8 @@ func (t *Transport) resubscribe() {
 		delete(t.subs, subject)
 		// Create new subscription
 		if err := t.subscribe(subject); err != nil {
-			// Log error but continue with other subscriptions
-			// In a real implementation, you might want to handle this more gracefully
+			// Log error but continue with other subjects
+			slog.Default().Error("Failed to resubscribe to subject", "subject", subject, "error", err)
 		}
 	}
 }
@@ -184,7 +184,8 @@ func (t *Transport) Stop() error {
 	for subject, sub := range t.subs {
 		if sub != nil {
 			if err := sub.Unsubscribe(); err != nil {
-				// Log error but continue with cleanup
+				// Log error but continue cleanup
+				slog.Default().Error("Failed to unsubscribe from subject", "error", err)
 			}
 		}
 		delete(t.subs, subject)
