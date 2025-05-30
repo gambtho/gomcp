@@ -485,11 +485,11 @@ func (t *Transport) connectToSSE() error {
 
 	req, err := http.NewRequest("GET", eventsURL, nil)
 	if err != nil {
-		errMsg := fmt.Sprintf("Failed to create SSE request: %v", err)
+		errMsg := fmt.Errorf("Failed to create SSE request: %w", err)
 		if debugHandler := t.GetDebugHandler(); debugHandler != nil {
-			debugHandler(errMsg)
+			debugHandler(errMsg.Error())
 		}
-		return fmt.Errorf(errMsg)
+		return errMsg
 	}
 
 	// Set headers for SSE request
