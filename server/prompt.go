@@ -69,7 +69,7 @@ type PromptContent struct {
 // Templates can contain variables in the format {{variable}} which are
 // substituted when the prompt is rendered.
 type PromptTemplate struct {
-	// Role defines who is speaking in this template (system, user, assistant)
+	// Role defines who is speaking in this template (user, assistant)
 	Role string
 
 	// Content contains the template text with variables in {{variable}} format
@@ -107,12 +107,6 @@ type Prompt struct {
 
 	// Arguments are the parameters that can be passed when rendering the prompt
 	Arguments []PromptArgument
-}
-
-// System creates a system prompt template.
-// System prompts provide context or instructions to the language model.
-func System(content string) PromptTemplate {
-	return PromptTemplate{Role: "system", Content: content}
 }
 
 // User creates a user prompt template.

@@ -13,11 +13,10 @@ func TestPromptV20250326(t *testing.T) {
 	// Create a server with 2025-03-26 version
 	srv := server.NewServer("test-server-prompt-2025-03-26")
 
-	// Register a prompt with variables for testing
-	srv.Prompt("test-prompt-2025-03-26", "A test prompt for 2025-03-26 spec",
-		server.System("You are a helpful assistant."),
-		server.User("Explain the concept of {{topic}} with examples of {{example_type}}."),
-		server.Assistant("I'll explain {{topic}} using {{example_type}} examples."),
+	// Register a test prompt with multiple templates
+	srv.Prompt("test-prompt", "A test prompt with variables",
+		server.User("You are a helpful assistant. Please help with {{task}} in {{context}}."),
+		server.Assistant("I'll help you with that task."),
 	)
 
 	// Create JSON-RPC request for listing prompts
@@ -72,7 +71,7 @@ func TestPromptV20250326(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if prompt["name"] == "test-prompt-2025-03-26" {
+		if prompt["name"] == "test-prompt" {
 			found = true
 			// 2025-03-26 spec should have arguments listed
 			if args, ok := prompt["arguments"].([]interface{}); !ok || len(args) == 0 {
@@ -91,10 +90,10 @@ func TestPromptV20250326(t *testing.T) {
 		"id":      2,
 		"method":  "prompts/get",
 		"params": map[string]interface{}{
-			"name": "test-prompt-2025-03-26",
+			"name": "test-prompt",
 			"arguments": map[string]interface{}{
-				"topic":        "artificial intelligence",
-				"example_type": "practical",
+				"task":    "understanding",
+				"context": "the world",
 			},
 		},
 	}
@@ -129,21 +128,21 @@ func TestPromptV20250326(t *testing.T) {
 
 	// Should have description
 	description, ok := getResult["description"].(string)
-	if !ok || description != "A test prompt for 2025-03-26 spec" {
-		t.Errorf("Expected description 'A test prompt for 2025-03-26 spec', got %v", description)
+	if !ok || description != "A test prompt with variables" {
+		t.Errorf("Expected description 'A test prompt with variables', got %v", description)
 	}
 
 	// Should have messages array
 	messages, ok := getResult["messages"].([]interface{})
-	if !ok || len(messages) != 3 {
-		t.Errorf("Expected 3 messages, got %v", messages)
+	if !ok || len(messages) != 2 {
+		t.Errorf("Expected 2 messages, got %v", messages)
 	}
 
-	// Check the user message (second one)
-	if len(messages) >= 2 {
-		userMsg, ok := messages[1].(map[string]interface{})
+	// Check the user message (first one)
+	if len(messages) >= 1 {
+		userMsg, ok := messages[0].(map[string]interface{})
 		if !ok {
-			t.Fatalf("Expected user message to be a map, got %T", messages[1])
+			t.Fatalf("Expected user message to be a map, got %T", messages[0])
 		}
 
 		// Check role
@@ -165,7 +164,7 @@ func TestPromptV20250326(t *testing.T) {
 
 			// Check text with variables substituted
 			text, ok := content["text"].(string)
-			if !ok || text != "Explain the concept of artificial intelligence with examples of practical." {
+			if !ok || text != "You are a helpful assistant. Please help with understanding in the world." {
 				t.Errorf("Expected text with all variables substituted, got %v", text)
 			}
 		}
@@ -177,10 +176,10 @@ func TestPromptV20250326(t *testing.T) {
 		"id":      3,
 		"method":  "prompts/get",
 		"params": map[string]interface{}{
-			"name": "test-prompt-2025-03-26",
+			"name": "test-prompt",
 			"arguments": map[string]interface{}{
-				"topic": "artificial intelligence",
-				// Missing example_type
+				"task": "understanding",
+				// Missing context
 			},
 		},
 	}

@@ -13,11 +13,10 @@ func TestPromptDraft(t *testing.T) {
 	// Create a server
 	s := server.NewServer("test-server-prompt-draft")
 
-	// Register a prompt with variables for testing
-	s.Prompt("test-prompt-draft", "A test prompt for draft spec",
-		server.System("You are a helpful assistant."),
-		server.User("Explain the concept of {{topic}} in simple terms."),
-		server.Assistant("I'll explain {{topic}} simply."),
+	// Register a test prompt with multiple templates
+	s.Prompt("test-prompt", "A test prompt with variables",
+		server.User("You are a helpful assistant. Please help with {{task}} in {{context}}."),
+		server.Assistant("I'll help you with that task."),
 	)
 
 	// Create test requests
@@ -47,7 +46,7 @@ func TestPromptDraft(t *testing.T) {
 					if !ok {
 						continue
 					}
-					if prompt["name"] == "test-prompt-draft" {
+					if prompt["name"] == "test-prompt" {
 						found = true
 						// Check arguments - draft spec requires arguments
 						args, ok := prompt["arguments"].([]interface{})
@@ -67,13 +66,13 @@ func TestPromptDraft(t *testing.T) {
 		{
 			name:           "get prompt with arguments",
 			method:         "prompts/get",
-			params:         json.RawMessage(`{"name":"test-prompt-draft","arguments":{"topic":"neural networks"}}`),
+			params:         json.RawMessage(`{"name":"test-prompt","arguments":{"task":"writing a report","context":"a meeting"}}`),
 			expectedStatus: 0,
 			validateResult: func(t *testing.T, result map[string]interface{}) {
 				// Validate prompt structure according to draft spec
 				description, ok := result["description"].(string)
-				if !ok || description != "A test prompt for draft spec" {
-					t.Errorf("Expected description 'A test prompt for draft spec', got %v", description)
+				if !ok || description != "A test prompt with variables" {
+					t.Errorf("Expected description 'A test prompt with variables', got %v", description)
 				}
 
 				// Check the messages
@@ -81,15 +80,15 @@ func TestPromptDraft(t *testing.T) {
 				if !ok {
 					t.Fatalf("Expected messages to be a slice, got %T", result["messages"])
 				}
-				if len(messages) != 3 {
-					t.Errorf("Expected 3 messages, got %d", len(messages))
+				if len(messages) != 2 {
+					t.Errorf("Expected 2 messages, got %d", len(messages))
 				}
 
-				// Check second message (user)
-				if len(messages) > 1 {
-					msg, ok := messages[1].(map[string]interface{})
+				// Check first message (user)
+				if len(messages) > 0 {
+					msg, ok := messages[0].(map[string]interface{})
 					if !ok {
-						t.Fatalf("Expected message to be a map, got %T", messages[1])
+						t.Fatalf("Expected message to be a map, got %T", messages[0])
 					}
 
 					// Check role
@@ -112,7 +111,7 @@ func TestPromptDraft(t *testing.T) {
 
 					// Content should have text with variables substituted
 					text, ok := content["text"].(string)
-					if !ok || text != "Explain the concept of neural networks in simple terms." {
+					if !ok || text != "You are a helpful assistant. Please help with writing a report in a meeting." {
 						t.Errorf("Expected text with substituted variable, got %v", text)
 					}
 				}
@@ -121,7 +120,7 @@ func TestPromptDraft(t *testing.T) {
 		{
 			name:           "get prompt with missing argument",
 			method:         "prompts/get",
-			params:         json.RawMessage(`{"name":"test-prompt-draft","arguments":{}}`),
+			params:         json.RawMessage(`{"name":"test-prompt","arguments":{}}`),
 			expectedStatus: -32602, // Invalid params
 			validateResult: nil,
 		},

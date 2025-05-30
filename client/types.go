@@ -19,3 +19,12 @@ type ClientCapabilities struct {
 type RootsCapability struct {
 	ListChanged bool `json:"listChanged"`
 }
+
+// Tool represents a tool available from an MCP server.
+type Tool struct {
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description,omitempty"`
+	InputSchema  map[string]interface{} `json:"inputSchema"`
+	OutputSchema map[string]interface{} `json:"outputSchema,omitempty"`
+	Annotations  map[string]interface{} `json:"annotations,omitempty"`
+}

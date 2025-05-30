@@ -139,6 +139,21 @@ type Client interface {
 	//  }
 	GetRoots() ([]Root, error)
 
+	// ListTools retrieves the list of available tools from the server.
+	//
+	// This method calls the tools/list endpoint as specified in the MCP protocol.
+	// It automatically handles pagination internally and returns all available tools.
+	// The returned slice contains all available tools with their names, descriptions,
+	// and input schemas, which can be used for tool discovery and proxy patterns.
+	//
+	// Example:
+	//  tools, err := client.ListTools()
+	//  for _, tool := range tools {
+	//      fmt.Printf("Tool: %s - %s\n", tool.Name, tool.Description)
+	//      fmt.Printf("Schema: %+v\n", tool.InputSchema)
+	//  }
+	ListTools() ([]Tool, error)
+
 	// Version returns the negotiated protocol version with the server.
 	//
 	// This returns one of the standardized version strings: "draft", "2024-11-05",

@@ -11,85 +11,123 @@ func TestPromptRegistrationAndTemplates(t *testing.T) {
 	// Create a new server
 	s := server.NewServer("test-server")
 
-	// Register a prompt with string templates
-	s.Prompt("simple-prompt", "A simple prompt for testing",
-		"This is a template string",
-		"This is another template string",
-	)
+	// Register test prompts
+	s.Prompt("simple", "A simple prompt",
+		server.User("I am a helpful assistant. What can I help you with?"))
 
-	// Register a prompt with explicit templates
-	s.Prompt("complex-prompt", "A more complex prompt",
-		server.System("I am a helpful assistant"),
-		server.User("What is the capital of {{country}}?"),
-		server.Assistant("The capital of {{country}} is {{capital}}."),
+	s.Prompt("with-variables", "A prompt with variables",
+		server.User("Hello {{name}}, welcome to {{service}}!"))
+
+	// Register a prompt with multiple templates
+	s.Prompt("multi-template", "A prompt with multiple templates",
+		server.User("You are a helpful assistant. Please help with {{task}}."),
+		server.Assistant("I'll help you with that."),
 	)
 
 	// Check that the prompts were registered
 	server := s.GetServer()
-	if len(server.GetPrompts()) != 2 {
-		t.Errorf("Expected 2 prompts, got %d", len(server.GetPrompts()))
+	if len(server.GetPrompts()) != 3 {
+		t.Errorf("Expected 3 prompts, got %d", len(server.GetPrompts()))
 	}
 
 	// Check the simple prompt
-	simplePrompt, ok := server.GetPrompts()["simple-prompt"]
+	simplePrompt, ok := server.GetPrompts()["simple"]
 	if !ok {
-		t.Fatal("simple-prompt not found")
+		t.Fatal("simple not found")
 	}
-	if simplePrompt.Name != "simple-prompt" {
-		t.Errorf("Expected name 'simple-prompt', got '%s'", simplePrompt.Name)
+	if simplePrompt.Name != "simple" {
+		t.Errorf("Expected name 'simple', got '%s'", simplePrompt.Name)
 	}
-	if simplePrompt.Description != "A simple prompt for testing" {
-		t.Errorf("Expected description 'A simple prompt for testing', got '%s'", simplePrompt.Description)
+	if simplePrompt.Description != "A simple prompt" {
+		t.Errorf("Expected description 'A simple prompt', got '%s'", simplePrompt.Description)
 	}
-	if len(simplePrompt.Templates) != 2 {
-		t.Errorf("Expected 2 templates, got %d", len(simplePrompt.Templates))
+	if len(simplePrompt.Templates) != 1 {
+		t.Errorf("Expected 1 template, got %d", len(simplePrompt.Templates))
 	}
 	if simplePrompt.Templates[0].Role != "user" {
 		t.Errorf("Expected role 'user', got '%s'", simplePrompt.Templates[0].Role)
 	}
-	if simplePrompt.Templates[0].Content != "This is a template string" {
-		t.Errorf("Expected content 'This is a template string', got '%s'", simplePrompt.Templates[0].Content)
+	if simplePrompt.Templates[0].Content != "I am a helpful assistant. What can I help you with?" {
+		t.Errorf("Expected content 'I am a helpful assistant. What can I help you with?', got '%s'", simplePrompt.Templates[0].Content)
 	}
 
-	// Check the complex prompt
-	complexPrompt, ok := server.GetPrompts()["complex-prompt"]
+	// Check the with-variables prompt
+	withVariablesPrompt, ok := server.GetPrompts()["with-variables"]
 	if !ok {
-		t.Fatal("complex-prompt not found")
+		t.Fatal("with-variables not found")
 	}
-	if complexPrompt.Name != "complex-prompt" {
-		t.Errorf("Expected name 'complex-prompt', got '%s'", complexPrompt.Name)
+	if withVariablesPrompt.Name != "with-variables" {
+		t.Errorf("Expected name 'with-variables', got '%s'", withVariablesPrompt.Name)
 	}
-	if len(complexPrompt.Templates) != 3 {
-		t.Errorf("Expected 3 templates, got %d", len(complexPrompt.Templates))
+	if withVariablesPrompt.Description != "A prompt with variables" {
+		t.Errorf("Expected description 'A prompt with variables', got '%s'", withVariablesPrompt.Description)
+	}
+	if len(withVariablesPrompt.Templates) != 1 {
+		t.Errorf("Expected 1 template, got %d", len(withVariablesPrompt.Templates))
 	}
 
-	// Check template roles
-	expectedRoles := []string{"system", "user", "assistant"}
-	for i, role := range expectedRoles {
-		if complexPrompt.Templates[i].Role != role {
-			t.Errorf("Expected role '%s', got '%s'", role, complexPrompt.Templates[i].Role)
-		}
+	// Check template role
+	if withVariablesPrompt.Templates[0].Role != "user" {
+		t.Errorf("Expected role 'user', got '%s'", withVariablesPrompt.Templates[0].Role)
 	}
 
 	// Verify arguments were extracted
-	if len(complexPrompt.Arguments) != 2 {
-		t.Errorf("Expected 2 arguments, got %d", len(complexPrompt.Arguments))
+	if len(withVariablesPrompt.Arguments) != 2 {
+		t.Errorf("Expected 2 arguments, got %d", len(withVariablesPrompt.Arguments))
 	}
 
 	// Check arguments
 	argMap := make(map[string]bool)
-	for _, arg := range complexPrompt.Arguments {
+	for _, arg := range withVariablesPrompt.Arguments {
 		argMap[arg.Name] = true
 		if !arg.Required {
 			t.Errorf("Expected argument '%s' to be required", arg.Name)
 		}
 	}
 
-	if !argMap["country"] {
-		t.Errorf("Expected 'country' argument to be extracted")
+	if !argMap["name"] {
+		t.Errorf("Expected 'name' argument to be extracted")
 	}
-	if !argMap["capital"] {
-		t.Errorf("Expected 'capital' argument to be extracted")
+	if !argMap["service"] {
+		t.Errorf("Expected 'service' argument to be extracted")
+	}
+
+	// Check the multi-template prompt
+	multiTemplatePrompt, ok := server.GetPrompts()["multi-template"]
+	if !ok {
+		t.Fatal("multi-template not found")
+	}
+	if multiTemplatePrompt.Name != "multi-template" {
+		t.Errorf("Expected name 'multi-template', got '%s'", multiTemplatePrompt.Name)
+	}
+	if len(multiTemplatePrompt.Templates) != 2 {
+		t.Errorf("Expected 2 templates, got %d", len(multiTemplatePrompt.Templates))
+	}
+
+	// Check template roles
+	expectedRoles := []string{"user", "assistant"}
+	for i, role := range expectedRoles {
+		if multiTemplatePrompt.Templates[i].Role != role {
+			t.Errorf("Expected role '%s', got '%s'", role, multiTemplatePrompt.Templates[i].Role)
+		}
+	}
+
+	// Verify arguments were extracted
+	if len(multiTemplatePrompt.Arguments) != 1 {
+		t.Errorf("Expected 1 argument, got %d", len(multiTemplatePrompt.Arguments))
+	}
+
+	// Check arguments
+	argMap = make(map[string]bool)
+	for _, arg := range multiTemplatePrompt.Arguments {
+		argMap[arg.Name] = true
+		if !arg.Required {
+			t.Errorf("Expected argument '%s' to be required", arg.Name)
+		}
+	}
+
+	if !argMap["task"] {
+		t.Errorf("Expected 'task' argument to be extracted")
 	}
 }
 
@@ -170,7 +208,6 @@ func TestProcessPromptRequest(t *testing.T) {
 
 	// Register a prompt
 	s.Prompt("test-prompt", "A test prompt",
-		server.System("You are a helpful assistant."),
 		server.User("Tell me about {{topic}}."),
 	)
 
@@ -210,20 +247,20 @@ func TestProcessPromptRequest(t *testing.T) {
 	if !ok {
 		t.Fatalf("Expected messages to be a slice of maps, got %T", resultMap["messages"])
 	}
-	if len(messages) != 2 {
-		t.Errorf("Expected 2 messages, got %d", len(messages))
+	if len(messages) != 1 {
+		t.Errorf("Expected 1 message, got %d", len(messages))
 	}
 
-	// Check the second message (with variable substitution)
-	secondMessage := messages[1]
-	if secondMessage["role"] != "user" {
-		t.Errorf("Expected role 'user', got '%s'", secondMessage["role"])
+	// Check the first message (with variable substitution)
+	firstMessage := messages[0]
+	if firstMessage["role"] != "user" {
+		t.Errorf("Expected role 'user', got '%s'", firstMessage["role"])
 	}
 
 	// Check content format
-	content, ok := secondMessage["content"].(map[string]interface{})
+	content, ok := firstMessage["content"].(map[string]interface{})
 	if !ok {
-		t.Fatalf("Expected content to be a map, got %T", secondMessage["content"])
+		t.Fatalf("Expected content to be a map, got %T", firstMessage["content"])
 	}
 
 	// Check content fields
