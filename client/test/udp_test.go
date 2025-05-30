@@ -120,7 +120,11 @@ func TestBasicUDPClientServerCommunication(t *testing.T) {
 			case <-serverDone:
 				return
 			default:
-				conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+				// Set read deadline for timeout
+				if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+					t.Errorf("Failed to set read deadline: %v", err)
+					return
+				}
 				n, addr, err := conn.ReadFromUDP(buf)
 				if err != nil {
 					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -179,7 +183,9 @@ func TestBasicUDPClientServerCommunication(t *testing.T) {
 	t.Logf("Client sent message: %s", testMessage)
 
 	// Read the response
-	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("Failed to set read deadline: %v", err)
+	}
 	responseBuffer := make([]byte, 1024)
 	n, _, err := clientConn.ReadFromUDP(responseBuffer)
 	if err != nil {

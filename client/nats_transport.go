@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -159,8 +160,8 @@ func (t *NATSTransport) Disconnect() error {
 
 	t.responseSubsMu.Lock()
 	for _, sub := range t.responseSubs {
-		if sub != nil {
-			sub.Unsubscribe()
+		if err := sub.Unsubscribe(); err != nil {
+			slog.Default().Error("NATS transport failed to unsubscribe", "error", err)
 		}
 	}
 	t.responseSubs = make(map[string]*nats.Subscription)

@@ -15,10 +15,10 @@ import (
 	"github.com/localrivet/gomcp/transport"
 	"github.com/localrivet/gomcp/transport/mqtt"
 	"github.com/localrivet/gomcp/transport/nats"
+	"github.com/localrivet/gomcp/transport/sse"
 	"github.com/localrivet/gomcp/transport/stdio"
 	"github.com/localrivet/gomcp/transport/udp"
 	"github.com/localrivet/gomcp/transport/unix"
-	"github.com/localrivet/gomcp/transport/sse"
 )
 
 // Server represents an MCP server with fluent configuration methods.
@@ -140,6 +140,60 @@ type Server interface {
 	//	    "user_id", userID,
 	//	)
 	Logger() *slog.Logger
+
+	// ListTools returns a list of all registered tools.
+	//
+	// This method provides programmatic access to the server's tool registry,
+	// returning the same information that would be provided via the tools/list
+	// MCP endpoint but in a convenient Go slice format. This is useful for
+	// debugging, monitoring, and multi-proxy aggregation scenarios.
+	//
+	// Example:
+	//  tools, err := server.ListTools()
+	//  if err != nil {
+	//      log.Printf("Failed to list tools: %v", err)
+	//      return
+	//  }
+	//  for _, tool := range tools {
+	//      fmt.Printf("Tool: %s - %s\n", tool.Name, tool.Description)
+	//  }
+	ListTools() ([]mcp.Tool, error)
+
+	// ListResources returns a list of all registered resources.
+	//
+	// This method provides programmatic access to the server's resource registry,
+	// returning the same information that would be provided via the resources/list
+	// MCP endpoint but in a convenient Go slice format. This is useful for
+	// debugging, monitoring, and multi-proxy aggregation scenarios.
+	//
+	// Example:
+	//  resources, err := server.ListResources()
+	//  if err != nil {
+	//      log.Printf("Failed to list resources: %v", err)
+	//      return
+	//  }
+	//  for _, resource := range resources {
+	//      fmt.Printf("Resource: %s - %s\n", resource.URI, resource.Description)
+	//  }
+	ListResources() ([]mcp.Resource, error)
+
+	// ListPrompts returns a list of all registered prompts.
+	//
+	// This method provides programmatic access to the server's prompt registry,
+	// returning the same information that would be provided via the prompts/list
+	// MCP endpoint but in a convenient Go slice format. This is useful for
+	// debugging, monitoring, and multi-proxy aggregation scenarios.
+	//
+	// Example:
+	//  prompts, err := server.ListPrompts()
+	//  if err != nil {
+	//      log.Printf("Failed to list prompts: %v", err)
+	//      return
+	//  }
+	//  for _, prompt := range prompts {
+	//      fmt.Printf("Prompt: %s - %s\n", prompt.Name, prompt.Description)
+	//  }
+	ListPrompts() ([]mcp.Prompt, error)
 
 	// AsHTTP configures the server to use HTTP for communication.
 	//
@@ -285,6 +339,12 @@ type serverImpl struct {
 	// requestCanceller manages cancellable requests and processes cancellation notifications.
 	requestCanceller *RequestCanceller
 
+	// progressTokenManager manages progress tokens for long-running operations.
+	progressTokenManager *mcp.ProgressTokenManager
+
+	// progressNotificationHandler manages progress notifications and bidirectional communication.
+	progressNotificationHandler *ProgressNotificationHandler
+
 	// sessionManager handles client session creation, retrieval, and management.
 	sessionManager *SessionManager
 
@@ -417,7 +477,11 @@ func NewServer(name string, options ...Option) Server {
 		pendingNotifications: [][]byte{},
 		toolsChanged:         false,
 		requestCanceller:     NewRequestCanceller(),
+		progressTokenManager: mcp.NewProgressTokenManager(),
 	}
+
+	// Initialize progress notification handler
+	s.progressNotificationHandler = NewProgressNotificationHandler(s)
 
 	// Set the default transport to stdio
 	s.transport = stdio.NewTransport()
@@ -797,4 +861,204 @@ func (s *serverImpl) handleInitializedNotification() {
 			s.logger.Debug("sent tools/list_changed notification after client initialization")
 		}
 	}()
+}
+
+// ListTools returns a list of all registered tools.
+//
+// This method provides programmatic access to the server's tool registry,
+// internally calling ProcessToolList and converting the response to the shared
+// mcp.Tool format for consistency with the client interface.
+func (s *serverImpl) ListTools() ([]mcp.Tool, error) {
+	// Create a mock context for the ProcessToolList call
+	ctx := &Context{
+		Request: &Request{},
+	}
+
+	// Call the existing ProcessToolList method
+	result, err := s.ProcessToolList(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process tool list: %w", err)
+	}
+
+	// Convert the result to the expected format
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected result format from ProcessToolList")
+	}
+
+	toolsInterface, ok := resultMap["tools"]
+	if !ok {
+		return nil, fmt.Errorf("tools field not found in ProcessToolList result")
+	}
+
+	toolsSlice, ok := toolsInterface.([]map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("tools field has unexpected format")
+	}
+
+	// Convert to mcp.Tool slice
+	tools := make([]mcp.Tool, 0, len(toolsSlice))
+	for _, toolMap := range toolsSlice {
+		tool := mcp.Tool{
+			Name:        getString(toolMap, "name"),
+			Description: getString(toolMap, "description"),
+			InputSchema: getMap(toolMap, "inputSchema"),
+			Annotations: getMap(toolMap, "annotations"),
+		}
+
+		// Handle OutputSchema if present (for draft spec compatibility)
+		if outputSchema, exists := toolMap["outputSchema"]; exists {
+			if outputSchemaMap, ok := outputSchema.(map[string]interface{}); ok {
+				tool.OutputSchema = outputSchemaMap
+			}
+		}
+
+		tools = append(tools, tool)
+	}
+
+	return tools, nil
+}
+
+// ListResources returns a list of all registered resources.
+//
+// This method provides programmatic access to the server's resource registry,
+// internally calling ProcessResourceList and converting the response to the shared
+// mcp.Resource format for consistency with the client interface.
+func (s *serverImpl) ListResources() ([]mcp.Resource, error) {
+	// Create a mock context for the ProcessResourceList call
+	ctx := &Context{
+		Request: &Request{},
+	}
+
+	// Call the existing ProcessResourceList method
+	result, err := s.ProcessResourceList(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process resource list: %w", err)
+	}
+
+	// Convert the result to the expected format
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected result format from ProcessResourceList")
+	}
+
+	resourcesInterface, ok := resultMap["resources"]
+	if !ok {
+		return nil, fmt.Errorf("resources field not found in ProcessResourceList result")
+	}
+
+	resourcesSlice, ok := resourcesInterface.([]map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("resources field has unexpected format")
+	}
+
+	// Convert to mcp.Resource slice
+	resources := make([]mcp.Resource, 0, len(resourcesSlice))
+	for _, resourceMap := range resourcesSlice {
+		resource := mcp.Resource{
+			URI:         getString(resourceMap, "uri"),
+			Name:        getString(resourceMap, "name"),
+			Description: getString(resourceMap, "description"),
+			MimeType:    getString(resourceMap, "mimeType"),
+			Annotations: getMap(resourceMap, "annotations"),
+		}
+
+		resources = append(resources, resource)
+	}
+
+	return resources, nil
+}
+
+// ListPrompts returns a list of all registered prompts.
+//
+// This method provides programmatic access to the server's prompt registry,
+// internally calling ProcessPromptList and converting the response to the shared
+// mcp.Prompt format for consistency with the client interface.
+func (s *serverImpl) ListPrompts() ([]mcp.Prompt, error) {
+	// Create a mock context for the ProcessPromptList call
+	ctx := &Context{
+		Request: &Request{},
+	}
+
+	// Call the existing ProcessPromptList method
+	result, err := s.ProcessPromptList(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process prompt list: %w", err)
+	}
+
+	// Convert the result to the expected format
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected result format from ProcessPromptList")
+	}
+
+	promptsInterface, ok := resultMap["prompts"]
+	if !ok {
+		return nil, fmt.Errorf("prompts field not found in ProcessPromptList result")
+	}
+
+	promptsSlice, ok := promptsInterface.([]map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("prompts field has unexpected format")
+	}
+
+	// Convert to mcp.Prompt slice
+	prompts := make([]mcp.Prompt, 0, len(promptsSlice))
+	for _, promptMap := range promptsSlice {
+		prompt := mcp.Prompt{
+			Name:        getString(promptMap, "name"),
+			Description: getString(promptMap, "description"),
+			Annotations: getMap(promptMap, "annotations"),
+		}
+
+		// Handle arguments if present
+		if argsInterface, exists := promptMap["arguments"]; exists {
+			if argsSlice, ok := argsInterface.([]interface{}); ok {
+				arguments := make([]mcp.PromptArgument, 0, len(argsSlice))
+				for _, argInterface := range argsSlice {
+					if argMap, ok := argInterface.(map[string]interface{}); ok {
+						arg := mcp.PromptArgument{
+							Name:        getString(argMap, "name"),
+							Description: getString(argMap, "description"),
+							Required:    getBool(argMap, "required"),
+						}
+						arguments = append(arguments, arg)
+					}
+				}
+				prompt.Arguments = arguments
+			}
+		}
+
+		prompts = append(prompts, prompt)
+	}
+
+	return prompts, nil
+}
+
+// Helper functions for type conversion
+func getString(m map[string]interface{}, key string) string {
+	if val, ok := m[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return ""
+}
+
+func getMap(m map[string]interface{}, key string) map[string]interface{} {
+	if val, ok := m[key]; ok {
+		if mapVal, ok := val.(map[string]interface{}); ok {
+			return mapVal
+		}
+	}
+	return nil
+}
+
+func getBool(m map[string]interface{}, key string) bool {
+	if val, ok := m[key]; ok {
+		if boolVal, ok := val.(bool); ok {
+			return boolVal
+		}
+	}
+	return false
 }

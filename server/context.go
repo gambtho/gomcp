@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+
+	"github.com/localrivet/gomcp/mcp"
 )
 
 // Context represents the execution context for a server request.
@@ -36,6 +38,9 @@ type Context struct {
 
 	// Request ID for tracing
 	RequestID string
+
+	// Progress token for long-running operations (if present)
+	ProgressToken string
 
 	// Metadata for storing contextual information during request processing
 	Metadata map[string]interface{}
@@ -116,6 +121,11 @@ func NewContext(ctx context.Context, requestBytes []byte, server *serverImpl) (*
 
 	reqCtx.Request = request
 	reqCtx.RequestID = stringify(request.ID) // Convert ID to string for internal use
+
+	// Extract progress token if present in the request
+	if progressToken, err := mcp.ExtractProgressTokenFromRequest(requestBytes); err == nil && progressToken != "" {
+		reqCtx.ProgressToken = progressToken
+	}
 
 	// Default to latest protocol version if not specified
 	reqCtx.Version = "2025-03-26"
@@ -560,4 +570,85 @@ func (c *Context) CancelRequest(reason string) error {
 	}
 
 	return c.server.SendCancelledNotification(c.RequestID, reason)
+}
+
+// CreateProgressToken creates a new progress token for this request
+// This should be called at the beginning of long-running operations to enable progress tracking
+func (c *Context) CreateProgressToken() string {
+	if c.server == nil {
+		return ""
+	}
+
+	token := c.server.CreateProgressToken(c.RequestID)
+	c.ProgressToken = token
+	return token
+}
+
+// SendProgress sends a progress notification for this context's progress token
+// If no progress token exists, this method does nothing and returns nil
+func (c *Context) SendProgress(progress float64, total *float64, message string) error {
+	if c.ProgressToken == "" || c.server == nil {
+		return nil // No progress token, nothing to do
+	}
+
+	return c.server.SendProgressNotification(c.ProgressToken, progress, total, message)
+}
+
+// CompleteProgress marks the progress as complete and deactivates the progress token
+// This should be called when a long-running operation finishes
+func (c *Context) CompleteProgress(finalMessage string) error {
+	if c.ProgressToken == "" || c.server == nil {
+		return nil // No progress token, nothing to do
+	}
+
+	return c.server.CompleteProgress(c.ProgressToken, finalMessage)
+}
+
+// HasProgressToken returns true if this context has an active progress token
+func (c *Context) HasProgressToken() bool {
+	return c.ProgressToken != "" && c.server != nil && c.server.progressTokenManager.ValidateToken(c.ProgressToken)
+}
+
+// CreateProgressReporter creates a new ProgressReporter for this context's request
+// This provides a user-friendly API for progress reporting with automatic token management
+func (c *Context) CreateProgressReporter(total *float64, initialMessage string) *mcp.ProgressReporter {
+	if c.server == nil {
+		return nil
+	}
+
+	reporter := c.server.CreateProgressReporter(c.RequestID, total, initialMessage)
+
+	// Update context with the reporter's token
+	c.ProgressToken = reporter.GetToken()
+
+	return reporter
+}
+
+// CreateSimpleProgressReporter creates a basic ProgressReporter with minimal configuration
+func (c *Context) CreateSimpleProgressReporter(total *float64) *mcp.ProgressReporter {
+	if c.server == nil {
+		return nil
+	}
+
+	reporter := c.server.CreateSimpleProgressReporter(c.RequestID, total)
+
+	// Update context with the reporter's token
+	c.ProgressToken = reporter.GetToken()
+
+	return reporter
+}
+
+// StartProgressOperation creates a ProgressReporter and sends an initial notification
+// This is a convenience method for starting progress tracking with a single call
+func (c *Context) StartProgressOperation(total *float64, initialMessage string) *mcp.ProgressReporter {
+	if c.server == nil {
+		return nil
+	}
+
+	reporter := c.server.StartProgressOperation(c.RequestID, total, initialMessage)
+
+	// Update context with the reporter's token
+	c.ProgressToken = reporter.GetToken()
+
+	return reporter
 }

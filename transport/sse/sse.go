@@ -423,7 +423,10 @@ func (t *Transport) handleMessageRequest(w http.ResponseWriter, r *http.Request)
 	// Send response if available
 	if response != nil {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(response)
+		if _, err := w.Write(response); err != nil {
+			// Log error but don't fail the request
+			t.GetLogger().Debug("Failed to write response", "error", err)
+		}
 	} else {
 		// No response, return empty success
 		w.WriteHeader(http.StatusOK)

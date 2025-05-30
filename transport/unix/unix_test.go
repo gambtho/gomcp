@@ -76,9 +76,8 @@ func TestServerInitializeAndStart(t *testing.T) {
 	}
 
 	// Clean up
-	err = transport.Stop()
-	if err != nil {
-		t.Fatalf("Stop failed: %v", err)
+	if err := transport.Stop(); err != nil {
+		t.Errorf("Failed to stop server transport: %v", err)
 	}
 
 	// Verify socket file was removed
@@ -250,9 +249,8 @@ func TestConcurrentConnections(t *testing.T) {
 	}
 
 	// Clean up
-	err = serverTransport.Stop()
-	if err != nil {
-		t.Fatalf("Server stop failed: %v", err)
+	if err := serverTransport.Stop(); err != nil {
+		t.Errorf("Failed to stop server transport: %v", err)
 	}
 
 	// Ensure socket file is removed
@@ -294,7 +292,9 @@ func TestErrorHandling(t *testing.T) {
 	if err == nil {
 		// If it doesn't fail, make sure to clean up
 		t.Log("Note: Expected error when starting server with invalid socket path, but it succeeded")
-		serverTransport.Stop()
+		if err := serverTransport.Stop(); err != nil {
+			t.Logf("Failed to stop server transport: %v", err)
+		}
 	}
 
 	// Test with existing socket file
@@ -322,7 +322,9 @@ func TestErrorHandling(t *testing.T) {
 		err = readOnlyTransport.Start()
 		if err == nil {
 			t.Log("Note: Expected potential error when starting server on read-only file, but succeeded")
-			readOnlyTransport.Stop() // Clean up
+			if err := readOnlyTransport.Stop(); err != nil {
+				t.Logf("Failed to stop read-only transport: %v", err)
+			}
 		} else {
 			t.Logf("Note: Start failed with read-only socket as expected: %v", err)
 		}

@@ -40,7 +40,11 @@ func TestNATSWithRealBroker(t *testing.T) {
 	// Start the server transport
 	err = serverTransport.Start()
 	assert.NoError(t, err)
-	defer serverTransport.Stop()
+	defer func() {
+		if err := serverTransport.Stop(); err != nil {
+			t.Logf("Error stopping server transport: %v", err)
+		}
+	}()
 
 	// Create client transport
 	clientTransport := NewTransport(serverURL, false,
@@ -51,7 +55,11 @@ func TestNATSWithRealBroker(t *testing.T) {
 	// Initialize the client transport
 	err = clientTransport.Initialize()
 	assert.NoError(t, err)
-	defer clientTransport.Stop()
+	defer func() {
+		if err := clientTransport.Stop(); err != nil {
+			t.Logf("Error stopping client transport: %v", err)
+		}
+	}()
 
 	// Start the client transport
 	err = clientTransport.Start()
@@ -103,7 +111,11 @@ func TestNATSFullE2E(t *testing.T) {
 	assert.NoError(t, err)
 	err = serverTransport.Start()
 	assert.NoError(t, err)
-	defer serverTransport.Stop()
+	defer func() {
+		if err := serverTransport.Stop(); err != nil {
+			t.Logf("Error stopping server transport: %v", err)
+		}
+	}()
 
 	// Create a message handler
 	messageReceived := make(chan []byte, 1)
@@ -128,7 +140,11 @@ func TestNATSFullE2E(t *testing.T) {
 	assert.NoError(t, err)
 	err = clientTransport.Start()
 	assert.NoError(t, err)
-	defer clientTransport.Stop()
+	defer func() {
+		if err := clientTransport.Stop(); err != nil {
+			t.Logf("Error stopping client transport: %v", err)
+		}
+	}()
 
 	// Create a test message
 	message := map[string]interface{}{

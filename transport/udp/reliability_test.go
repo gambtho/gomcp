@@ -46,13 +46,21 @@ func TestReliability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start server transport: %v", err)
 	}
-	defer serverTransport.Stop()
+	defer func() {
+		if err := serverTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop server transport: %v", err)
+		}
+	}()
 
 	err = clientTransport.Start()
 	if err != nil {
 		t.Fatalf("Failed to start client transport: %v", err)
 	}
-	defer clientTransport.Stop()
+	defer func() {
+		if err := clientTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop client transport: %v", err)
+		}
+	}()
 
 	// Test data
 	testMessage := []byte("Hello, world! This is a test of the UDP reliable transport.")
@@ -92,12 +100,14 @@ func TestReliability(t *testing.T) {
 	// Test that the reliability metrics are being updated
 	if clientTransport.reliabilityManager != nil {
 		metrics := clientTransport.reliabilityManager.GetMetrics()
-		t.Logf("Client reliability metrics: %+v", metrics)
+		t.Logf("Client reliability metrics: PacketsSent=%d, PacketsRetransmitted=%d, AcksReceived=%d, MessagesFailed=%d",
+			metrics.PacketsSent, metrics.PacketsRetransmitted, metrics.AcksReceived, metrics.MessagesFailed)
 	}
 
 	if serverTransport.reliabilityManager != nil {
 		metrics := serverTransport.reliabilityManager.GetMetrics()
-		t.Logf("Server reliability metrics: %+v", metrics)
+		t.Logf("Server reliability metrics: PacketsSent=%d, PacketsRetransmitted=%d, AcksReceived=%d, MessagesFailed=%d",
+			metrics.PacketsSent, metrics.PacketsRetransmitted, metrics.AcksReceived, metrics.MessagesFailed)
 	}
 }
 
@@ -138,13 +148,21 @@ func TestReliableFragmentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start server transport: %v", err)
 	}
-	defer serverTransport.Stop()
+	defer func() {
+		if err := serverTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop server transport: %v", err)
+		}
+	}()
 
 	err = clientTransport.Start()
 	if err != nil {
 		t.Fatalf("Failed to start client transport: %v", err)
 	}
-	defer clientTransport.Stop()
+	defer func() {
+		if err := clientTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop client transport: %v", err)
+		}
+	}()
 
 	// Test data - large enough to force fragmentation
 	testMessage := []byte("This is a large message that will definitely be fragmented into multiple packets because we've set a very small maximum packet size. We want to ensure that the fragmentation and reassembly works correctly with reliability enabled.")
@@ -184,11 +202,13 @@ func TestReliableFragmentation(t *testing.T) {
 	// Test that the reliability metrics are being updated
 	if clientTransport.reliabilityManager != nil {
 		metrics := clientTransport.reliabilityManager.GetMetrics()
-		t.Logf("Client reliability metrics: %+v", metrics)
+		t.Logf("Client reliability metrics: PacketsSent=%d, PacketsRetransmitted=%d, AcksReceived=%d, MessagesFailed=%d",
+			metrics.PacketsSent, metrics.PacketsRetransmitted, metrics.AcksReceived, metrics.MessagesFailed)
 	}
 
 	if serverTransport.reliabilityManager != nil {
 		metrics := serverTransport.reliabilityManager.GetMetrics()
-		t.Logf("Server reliability metrics: %+v", metrics)
+		t.Logf("Server reliability metrics: PacketsSent=%d, PacketsRetransmitted=%d, AcksReceived=%d, MessagesFailed=%d",
+			metrics.PacketsSent, metrics.PacketsRetransmitted, metrics.AcksReceived, metrics.MessagesFailed)
 	}
 }

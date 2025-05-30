@@ -2,6 +2,7 @@ package server
 
 import (
 	"path/filepath"
+	"strings"
 )
 
 // Root sets the allowed root paths for the server.
@@ -83,7 +84,7 @@ func (s *serverImpl) IsPathInRoots(path string) bool {
 	// Check if the path is within any of the registered roots
 	for _, root := range s.roots {
 		rel, err := filepath.Rel(root, normalizedPath)
-		if err == nil && !filepath.IsAbs(rel) && !filepath.HasPrefix(rel, "..") {
+		if err == nil && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, "..") {
 			return true
 		}
 	}

@@ -102,6 +102,11 @@ func HandleMessage(s *serverImpl, message []byte) ([]byte, error) {
 		}
 		return nil, nil
 	case "notifications/progress":
+		// Handle progress notification
+		if err := s.HandleProgressNotification(message); err != nil {
+			s.logger.Error("failed to handle progress notification", "error", err)
+		}
+		return nil, nil
 	case "notifications/message":
 	case "notifications/resources/list_changed":
 	case "notifications/resources/updated":

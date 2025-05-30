@@ -257,7 +257,9 @@ func (t *Transport) handleServerConnection(conn net.Conn) {
 			// Try to send error response if possible
 			errorResp := createErrorResponse(message, err)
 			if errorResp != nil {
-				conn.Write(append(errorResp, '\n'))
+				if _, err := conn.Write(append(errorResp, '\n')); err != nil {
+					t.GetLogger().Error("Unix Socket Transport: Error writing error response", "error", err)
+				}
 			}
 			continue
 		}

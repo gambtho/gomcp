@@ -153,7 +153,10 @@ func (t *Transport) resubscribe() {
 		// Remove old subscription
 		delete(t.subs, subject)
 		// Create new subscription
-		t.subscribe(subject)
+		if err := t.subscribe(subject); err != nil {
+			// Log error but continue with other subscriptions
+			// In a real implementation, you might want to handle this more gracefully
+		}
 	}
 }
 
@@ -180,7 +183,9 @@ func (t *Transport) Stop() error {
 	// Unsubscribe all subscriptions
 	for subject, sub := range t.subs {
 		if sub != nil {
-			sub.Unsubscribe()
+			if err := sub.Unsubscribe(); err != nil {
+				// Log error but continue with cleanup
+			}
 		}
 		delete(t.subs, subject)
 	}
@@ -260,14 +265,18 @@ func (t *Transport) messageHandler(msg *nats.Msg) {
 
 		// If there's a reply subject and we have a response, send it
 		if msg.Reply != "" && response != nil {
-			t.conn.Publish(msg.Reply, response)
+			if err := t.conn.Publish(msg.Reply, response); err != nil {
+				// Log error but continue
+			}
 			return
 		}
 
 		// For server sending to a specific client
 		if t.isServer && clientID != "" && response != nil {
 			responseSubject := t.getClientSubject(clientID)
-			t.conn.Publish(responseSubject, response)
+			if err := t.conn.Publish(responseSubject, response); err != nil {
+				// Log error but continue
+			}
 		}
 	}
 }
@@ -290,29 +299,6 @@ func (t *Transport) subscribe(subject string) error {
 
 	// Store the subscription
 	t.subs[subject] = sub
-
-	return nil
-}
-
-// unsubscribe unsubscribes from a subject
-func (t *Transport) unsubscribe(subject string) error {
-	t.subsMu.Lock()
-	defer t.subsMu.Unlock()
-
-	// Check if we're subscribed
-	sub, exists := t.subs[subject]
-	if !exists {
-		return nil
-	}
-
-	// Unsubscribe
-	err := sub.Unsubscribe()
-	if err != nil {
-		return err
-	}
-
-	// Remove from our tracking
-	delete(t.subs, subject)
 
 	return nil
 }

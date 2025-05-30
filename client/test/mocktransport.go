@@ -240,16 +240,6 @@ func (m *MockTransport) Disconnect() error {
 	return nil
 }
 
-// withResponse is a helper function that captures the response that was sent
-func (m *MockTransport) withResponse(response []byte, err error) ([]byte, error) {
-	if err == nil {
-		m.mu.Lock()
-		m.ResponseHistory = append(m.ResponseHistory, response)
-		m.mu.Unlock()
-	}
-	return response, err
-}
-
 // Send implements the Transport interface
 func (m *MockTransport) Send(message []byte) ([]byte, error) {
 	// A simplified approach with minimal locking to avoid deadlocks

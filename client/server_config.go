@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 )
@@ -135,8 +134,12 @@ func (r *ServerRegistry) StartServer(name string, def ServerDefinition) error {
 	client, err := NewClient(name, clientOpts...)
 	if err != nil {
 		// Kill the process if client creation fails
-		cmd.Process.Kill()
-		cmd.Wait()
+		if err := cmd.Process.Kill(); err != nil {
+			slog.Default().Error("Failed to kill server process", "error", err)
+		}
+		if err := cmd.Wait(); err != nil {
+			slog.Default().Error("Failed to wait for server process", "error", err)
+		}
 		return fmt.Errorf("failed to create client for server %s: %w", name, err)
 	}
 
@@ -193,15 +196,10 @@ func (r *ServerRegistry) StopServer(name string) error {
 
 	// Then terminate the process
 	if err := server.cmd.Process.Kill(); err != nil {
-		return fmt.Errorf("failed to kill process: %w", err)
+		slog.Default().Error("Failed to kill server process", "error", err)
 	}
-
-	// Wait for the process to exit
 	if err := server.cmd.Wait(); err != nil {
-		// Ignore the error if it's due to the process being killed
-		if !strings.Contains(err.Error(), "killed") {
-			return fmt.Errorf("error waiting for process to exit: %w", err)
-		}
+		slog.Default().Error("Failed to wait for server process", "error", err)
 	}
 
 	// Remove from our registry

@@ -90,7 +90,11 @@ func TestTransportInitialize(t *testing.T) {
 	}
 
 	// Clean up
-	defer transport.Stop()
+	defer func() {
+		if err := transport.Stop(); err != nil {
+			t.Logf("Error stopping transport: %v", err)
+		}
+	}()
 }
 
 func TestSendBeforeStart(t *testing.T) {

@@ -248,7 +248,10 @@ func (t *Transport) handleHTTPRequest(w http.ResponseWriter, r *http.Request) {
 		if jsonRPCRequest.Id != nil {
 			jsonError["id"] = jsonRPCRequest.Id
 		}
-		json.NewEncoder(w).Encode(jsonError)
+		if err := json.NewEncoder(w).Encode(jsonError); err != nil {
+			// Log error but continue
+			t.GetLogger().Error("Failed to encode JSON error response", "error", err)
+		}
 		return
 	}
 
@@ -288,11 +291,17 @@ func (t *Transport) handleHTTPRequest(w http.ResponseWriter, r *http.Request) {
 			},
 			"id": jsonRPCRequest.Id,
 		}
-		json.NewEncoder(w).Encode(jsonError)
+		if err := json.NewEncoder(w).Encode(jsonError); err != nil {
+			// Log error but continue
+			t.GetLogger().Error("Failed to encode JSON error response", "error", err)
+		}
 		return
 	}
 
 	// Send response
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(response)
+	if _, err := w.Write(response); err != nil {
+		// Log error but don't fail the request
+		t.GetLogger().Error("Failed to write response", "error", err)
+	}
 }

@@ -167,20 +167,3 @@ func TestToolExecutionV20241105(t *testing.T) {
 		t.Errorf("Expected tool description to be 'A simple test tool for 2024-11-05', got %v", tool["description"])
 	}
 }
-
-// Helper function to get tool list from server
-func getTools(srv server.Server) ([]interface{}, error) {
-	// We are using a simplified approach to get the tools
-	// In a real implementation, you would use the server's API
-
-	// For testing, we'll return a mocked tool list
-	return []interface{}{
-		map[string]interface{}{
-			"name":        "test-tool",
-			"description": "A simple test tool for 2024-11-05",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-			},
-		},
-	}, nil
-}

@@ -30,7 +30,11 @@ func TestMQTTEndToEnd(t *testing.T) {
 	// Initialize and start server transport
 	require.NoError(t, serverTransport.Initialize())
 	require.NoError(t, serverTransport.Start())
-	defer serverTransport.Stop()
+	defer func() {
+		if err := serverTransport.Stop(); err != nil {
+			t.Logf("Error stopping server transport: %v", err)
+		}
+	}()
 
 	// Set up message handling for the server
 	serverDone := make(chan struct{})
@@ -49,7 +53,11 @@ func TestMQTTEndToEnd(t *testing.T) {
 	// Initialize and start client transport
 	require.NoError(t, clientTransport.Initialize())
 	require.NoError(t, clientTransport.Start())
-	defer clientTransport.Stop()
+	defer func() {
+		if err := clientTransport.Stop(); err != nil {
+			t.Logf("Error stopping client transport: %v", err)
+		}
+	}()
 
 	// Send a test message from client to server
 	testMessage := []byte(`{"jsonrpc":"2.0","id":1,"method":"echo","params":{"message":"Hello MQTT"}}`)

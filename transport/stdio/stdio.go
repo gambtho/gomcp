@@ -151,7 +151,12 @@ func (t *Transport) readLoop() {
 
 			// Process the message with the handler
 			if response, err := t.HandleMessage([]byte(line)); err == nil && response != nil {
-				t.Send(response)
+				if err := t.Send(response); err != nil {
+					// Log error but continue processing
+					if debugHandler := t.GetDebugHandler(); debugHandler != nil {
+						debugHandler("stdio transport: failed to send response: " + err.Error())
+					}
+				}
 			}
 		}
 	}

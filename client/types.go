@@ -1,6 +1,8 @@
 // Package client provides the client-side implementation of the MCP protocol.
 package client
 
+import "github.com/localrivet/gomcp/mcp"
+
 // Root represents a filesystem root exposed to the MCP server.
 type Root struct {
 	URI      string                 `json:"uri"`
@@ -20,11 +22,5 @@ type RootsCapability struct {
 	ListChanged bool `json:"listChanged"`
 }
 
-// Tool represents a tool available from an MCP server.
-type Tool struct {
-	Name         string                 `json:"name"`
-	Description  string                 `json:"description,omitempty"`
-	InputSchema  map[string]interface{} `json:"inputSchema"`
-	OutputSchema map[string]interface{} `json:"outputSchema,omitempty"`
-	Annotations  map[string]interface{} `json:"annotations,omitempty"`
-}
+// Tool is an alias to the shared mcp.Tool type for backward compatibility.
+type Tool = mcp.Tool

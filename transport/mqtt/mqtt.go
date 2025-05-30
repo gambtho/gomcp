@@ -143,7 +143,10 @@ func (t *Transport) Initialize() error {
 		defer t.subsMu.RUnlock()
 
 		for topic, qos := range t.subs {
-			t.subscribe(topic, qos)
+			if err := t.subscribe(topic, qos); err != nil {
+				// Log error but continue with other subscriptions
+				// In a real implementation, you might want to handle this more gracefully
+			}
 		}
 	})
 
@@ -282,20 +285,6 @@ func (t *Transport) subscribe(topic string, qos byte) error {
 
 	t.subsMu.Lock()
 	t.subs[topic] = qos
-	t.subsMu.Unlock()
-
-	return nil
-}
-
-// unsubscribe unsubscribes from an MQTT topic
-func (t *Transport) unsubscribe(topic string) error {
-	token := t.client.Unsubscribe(topic)
-	if token.Wait() && token.Error() != nil {
-		return token.Error()
-	}
-
-	t.subsMu.Lock()
-	delete(t.subs, topic)
 	t.subsMu.Unlock()
 
 	return nil

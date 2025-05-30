@@ -156,7 +156,6 @@ type Transport struct {
 	fragmentTTL        time.Duration // Time-to-live for fragments
 	nextMessageID      uint32        // Next message ID to use
 	reliabilityEnabled bool          // Whether reliability mechanisms are enabled
-	connMu             sync.Mutex    // Mutex for connection access
 
 	// Reliability fields
 	reliabilityLevel     ReliabilityLevel    // Level of reliability guarantees
@@ -533,7 +532,11 @@ func (t *Transport) sendSinglePacket(message []byte, messageID uint32) error {
 		if err := t.conn.SetWriteDeadline(time.Now().Add(t.writeTimeout)); err != nil {
 			return fmt.Errorf("failed to set write deadline: %w", err)
 		}
-		defer t.conn.SetWriteDeadline(time.Time{}) // Clear deadline
+		defer func() {
+			if err := t.conn.SetWriteDeadline(time.Time{}); err != nil {
+				// Log error but don't fail the operation
+			}
+		}()
 	}
 
 	// Write packet
@@ -596,7 +599,11 @@ func (t *Transport) sendFragmentedMessage(message []byte, messageID uint32, maxP
 			if err := t.conn.SetWriteDeadline(time.Now().Add(t.writeTimeout)); err != nil {
 				return fmt.Errorf("failed to set write deadline: %w", err)
 			}
-			defer t.conn.SetWriteDeadline(time.Time{}) // Clear deadline
+			defer func() {
+				if err := t.conn.SetWriteDeadline(time.Time{}); err != nil {
+					// Log error but don't fail the operation
+				}
+			}()
 		}
 
 		// Write packet

@@ -18,6 +18,23 @@
                 "AZURE_OPENAI_API_KEY": "AZURE_OPENAI_API_KEY_HERE",
                 "OLLAMA_API_KEY": "OLLAMA_API_KEY_HERE"
             }
+        },
+        "context7": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@upstash/context7-mcp@latest"
+            ]
+        },
+        "k8smcp": {
+            "command": "/Users/almatuck/workspaces/rnd/k8smcp/k8smcp",
+            "args": [
+                "start"
+            ],
+            "env": {
+                "KUBECONFIG": "/Users/almatuck/.kube/config",
+                "K8SMCP_KUBERNETES_CONTEXT": "orbstack"
+            }
         }
     }
 }

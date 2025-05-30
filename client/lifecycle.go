@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 )
 
 // Connect establishes a connection to the server.
@@ -54,7 +55,9 @@ func (c *clientImpl) Connect() error {
 
 	// Initialize the connection by negotiating the protocol version
 	if err := c.initialize(); err != nil {
-		c.transport.Disconnect()
+		if disconnectErr := c.transport.Disconnect(); disconnectErr != nil {
+			slog.Default().Error("Failed to disconnect transport after initialization failure", "error", disconnectErr)
+		}
 		c.connected = false
 		return fmt.Errorf("failed to initialize connection: %w", err)
 	}
@@ -66,7 +69,7 @@ func (c *clientImpl) Connect() error {
 func (c *clientImpl) initialize() error {
 	// Determine which protocol version(s) to send
 	var protocolVersion interface{}
-	
+
 	// If a negotiated version was already set (via WithProtocolVersion),
 	// use that single version instead of the full array
 	if c.negotiatedVersion != "" {
@@ -75,7 +78,7 @@ func (c *clientImpl) initialize() error {
 		// Otherwise use the full list of supported versions
 		protocolVersion = c.versionDetector.Supported
 	}
-	
+
 	// Create the initialize request
 	initRequest := map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -188,6 +191,8 @@ func (c *clientImpl) Close() error {
 		return nil
 	}
 
+	var err error
+
 	// Send a shutdown request if we're initialized
 	if c.initialized {
 		shutdownRequest := map[string]interface{}{
@@ -197,24 +202,27 @@ func (c *clientImpl) Close() error {
 		}
 
 		// Convert to JSON
-		requestJSON, err := json.Marshal(shutdownRequest)
-		if err != nil {
-			c.logger.Error("failed to marshal shutdown request", "error", err)
+		requestJSON, marshalErr := json.Marshal(shutdownRequest)
+		if marshalErr != nil {
+			c.logger.Error("failed to marshal shutdown request", "error", marshalErr)
 		} else {
 			// Create a context with timeout
 			ctx, cancel := context.WithTimeout(c.ctx, c.connectionTimeout)
 			defer cancel()
 
 			// Send the request
-			_, err := c.transport.SendWithContext(ctx, requestJSON)
-			if err != nil {
-				c.logger.Error("failed to send shutdown request", "error", err)
+			_, sendErr := c.transport.SendWithContext(ctx, requestJSON)
+			if sendErr != nil {
+				c.logger.Error("failed to send shutdown request", "error", sendErr)
 			}
 		}
 	}
 
-	// Disconnect from the server
-	err := c.transport.Disconnect()
+	// Disconnect from transport
+	if err := c.transport.Disconnect(); err != nil {
+		slog.Default().Error("Failed to disconnect transport", "error", err)
+	}
+
 	c.connected = false
 	c.initialized = false
 

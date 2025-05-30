@@ -811,15 +811,13 @@ func ValidateType(value interface{}, expectedType string) bool {
 			return false
 		}
 	case "integer":
-		switch value.(type) {
+		switch value := value.(type) {
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 			return true
 		case float32:
-			f := value.(float32)
-			return float32(int32(f)) == f
+			return float32(int32(value)) == value
 		case float64:
-			f := value.(float64)
-			return float64(int64(f)) == f
+			return float64(int64(value)) == value
 		default:
 			return false
 		}
@@ -881,15 +879,15 @@ func ValidateConstraints(v *Validator, fieldName string, value interface{}, sche
 	case "number", "integer":
 		// Convert to float64 for numeric validation
 		var numValue float64
-		switch val := value.(type) {
+		switch value.(type) {
 		case float64:
-			numValue = val
+			numValue = value.(float64)
 		case float32:
-			numValue = float64(val)
+			numValue = float64(value.(float32))
 		case int:
-			numValue = float64(val)
+			numValue = float64(value.(int))
 		case int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-			numValue = reflect.ValueOf(val).Float()
+			numValue = reflect.ValueOf(value).Float()
 		default:
 			return // Skip non-numeric values
 		}

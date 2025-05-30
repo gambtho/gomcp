@@ -80,7 +80,10 @@ func TestPacketLoss(t *testing.T) {
 			}
 
 			// Set read deadline to allow checking for done signal
-			proxyConn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+			if err := proxyConn.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+				// Log error but continue
+				continue
+			}
 
 			// Read from client
 			n, clientAddr, err := proxyConn.ReadFromUDP(buf)
@@ -140,7 +143,10 @@ func TestPacketLoss(t *testing.T) {
 			}
 
 			// Read response from server (with timeout)
-			serverConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+			if err := serverConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+				serverConn.Close()
+				continue
+			}
 			respBuf := make([]byte, 2048)
 			n, err = serverConn.Read(respBuf)
 			serverConn.Close()
@@ -186,7 +192,9 @@ func TestPacketLoss(t *testing.T) {
 
 	// Set up proper cleanup
 	defer func() {
-		serverTransport.Stop()
+		if err := serverTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop server transport: %v", err)
+		}
 		// Signal proxy to stop and close connection
 		close(proxyDone)
 		proxyConn.Close()
@@ -214,7 +222,11 @@ func TestPacketLoss(t *testing.T) {
 	if err := clientTransport.Start(); err != nil {
 		t.Fatalf("Failed to start client transport: %v", err)
 	}
-	defer clientTransport.Stop()
+	defer func() {
+		if err := clientTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop client transport: %v", err)
+		}
+	}()
 
 	// Test sending a message with packet loss
 	testMessage := []byte("This is a test message for packet loss simulation.")
@@ -257,7 +269,8 @@ func TestPacketLoss(t *testing.T) {
 	// Check reliability metrics
 	if clientTransport.reliabilityManager != nil {
 		metrics := clientTransport.reliabilityManager.GetMetrics()
-		t.Logf("Client reliability metrics: %+v", metrics)
+		t.Logf("Client reliability metrics: PacketsSent=%d, PacketsRetransmitted=%d, AcksReceived=%d, MessagesFailed=%d, AverageRTT=%v",
+			metrics.PacketsSent, metrics.PacketsRetransmitted, metrics.AcksReceived, metrics.MessagesFailed, metrics.AverageRTT)
 
 		// We expect some retransmissions due to packet loss
 		if metrics.PacketsRetransmitted == 0 {
@@ -302,12 +315,20 @@ func TestOutOfOrderDelivery(t *testing.T) {
 	if err := serverTransport.Start(); err != nil {
 		t.Fatalf("Failed to start server transport: %v", err)
 	}
-	defer serverTransport.Stop()
+	defer func() {
+		if err := serverTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop server transport: %v", err)
+		}
+	}()
 
 	if err := clientTransport.Start(); err != nil {
 		t.Fatalf("Failed to start client transport: %v", err)
 	}
-	defer clientTransport.Stop()
+	defer func() {
+		if err := clientTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop client transport: %v", err)
+		}
+	}()
 
 	// Generate a large test message
 	testMessage := []byte("This is a large test message for out-of-order delivery simulation. " +
@@ -385,12 +406,20 @@ func TestDuplicatePackets(t *testing.T) {
 	if err := serverTransport.Start(); err != nil {
 		t.Fatalf("Failed to start server transport: %v", err)
 	}
-	defer serverTransport.Stop()
+	defer func() {
+		if err := serverTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop server transport: %v", err)
+		}
+	}()
 
 	if err := clientTransport.Start(); err != nil {
 		t.Fatalf("Failed to start client transport: %v", err)
 	}
-	defer clientTransport.Stop()
+	defer func() {
+		if err := clientTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop client transport: %v", err)
+		}
+	}()
 
 	// Test data
 	testMessage := []byte("This is a test message for duplicate packet handling.")
@@ -503,12 +532,20 @@ func TestReliabilityProfiles(t *testing.T) {
 			if err := serverTransport.Start(); err != nil {
 				t.Fatalf("Failed to start server transport: %v", err)
 			}
-			defer serverTransport.Stop()
+			defer func() {
+				if err := serverTransport.Stop(); err != nil {
+					t.Errorf("Failed to stop server transport: %v", err)
+				}
+			}()
 
 			if err := clientTransport.Start(); err != nil {
 				t.Fatalf("Failed to start client transport: %v", err)
 			}
-			defer clientTransport.Stop()
+			defer func() {
+				if err := clientTransport.Stop(); err != nil {
+					t.Errorf("Failed to stop client transport: %v", err)
+				}
+			}()
 
 			// Test data
 			testMessage := []byte("Testing message for reliability profile: " + tc.name)
@@ -547,12 +584,14 @@ func TestReliabilityProfiles(t *testing.T) {
 			// Check reliability manager metrics
 			if clientTransport.reliabilityManager != nil {
 				metrics := clientTransport.reliabilityManager.GetMetrics()
-				t.Logf("%s client metrics: %+v", tc.name, metrics)
+				t.Logf("%s client metrics: PacketsSent=%d, PacketsRetransmitted=%d, AcksReceived=%d, MessagesFailed=%d, AverageRTT=%v",
+					tc.name, metrics.PacketsSent, metrics.PacketsRetransmitted, metrics.AcksReceived, metrics.MessagesFailed, metrics.AverageRTT)
 			}
 
 			if serverTransport.reliabilityManager != nil {
 				metrics := serverTransport.reliabilityManager.GetMetrics()
-				t.Logf("%s server metrics: %+v", tc.name, metrics)
+				t.Logf("%s server metrics: PacketsSent=%d, PacketsRetransmitted=%d, AcksReceived=%d, MessagesFailed=%d, AverageRTT=%v",
+					tc.name, metrics.PacketsSent, metrics.PacketsRetransmitted, metrics.AcksReceived, metrics.MessagesFailed, metrics.AverageRTT)
 			}
 		})
 	}
@@ -608,7 +647,9 @@ func TestNetworkLatency(t *testing.T) {
 
 	// Start the client transport
 	if err := clientTransport.Start(); err != nil {
-		serverTransport.Stop()
+		if stopErr := serverTransport.Stop(); stopErr != nil {
+			t.Errorf("Failed to stop server transport: %v", stopErr)
+		}
 		t.Fatalf("Failed to start client transport: %v", err)
 	}
 
@@ -621,8 +662,12 @@ func TestNetworkLatency(t *testing.T) {
 		// Signal proxy to stop
 		close(proxyDone)
 		// Close connections
-		clientTransport.Stop()
-		serverTransport.Stop()
+		if err := clientTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop client transport: %v", err)
+		}
+		if err := serverTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop server transport: %v", err)
+		}
 		proxyConn.Close()
 		// Wait for proxy goroutines to finish
 		proxyWg.Wait()
@@ -680,7 +725,8 @@ func TestNetworkLatency(t *testing.T) {
 	// Check reliability metrics
 	if clientTransport.reliabilityManager != nil {
 		metrics := clientTransport.reliabilityManager.GetMetrics()
-		t.Logf("Client reliability metrics: %+v", metrics)
+		t.Logf("Client reliability metrics: PacketsSent=%d, PacketsRetransmitted=%d, AcksReceived=%d, MessagesFailed=%d, AverageRTT=%v",
+			metrics.PacketsSent, metrics.PacketsRetransmitted, metrics.AcksReceived, metrics.MessagesFailed, metrics.AverageRTT)
 		t.Logf("Average RTT: %v", metrics.AverageRTT)
 	}
 }
@@ -722,7 +768,10 @@ func clientToServerProxy(t *testing.T, proxyConn *net.UDPConn, serverAddr string
 		}
 
 		// Read from client
-		proxyConn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+		if err := proxyConn.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+			// Log error but continue
+			continue
+		}
 		n, clientAddr, err := proxyConn.ReadFromUDP(buffer)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -783,7 +832,9 @@ func clientToServerProxy(t *testing.T, proxyConn *net.UDPConn, serverAddr string
 			}
 
 			// Wait for response from server (with timeout)
-			serverConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			if err := serverConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+				return
+			}
 			respBuffer := make([]byte, 2048)
 			n, err := serverConn.Read(respBuffer)
 			if err != nil {
@@ -921,8 +972,12 @@ func BenchmarkUDPTransport(b *testing.B) {
 				serverWg.Wait()
 
 				// Now stop both transports
-				clientTransport.Stop()
-				serverTransport.Stop()
+				if err := clientTransport.Stop(); err != nil {
+					b.Logf("Error stopping client transport: %v", err)
+				}
+				if err := serverTransport.Stop(); err != nil {
+					b.Logf("Error stopping server transport: %v", err)
+				}
 
 				// Give a brief moment for all resources to be released
 				time.Sleep(10 * time.Millisecond)
@@ -1009,7 +1064,11 @@ func TestMultipleClients(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start server transport: %v", err)
 	}
-	defer serverTransport.Stop()
+	defer func() {
+		if err := serverTransport.Stop(); err != nil {
+			t.Errorf("Failed to stop server transport: %v", err)
+		}
+	}()
 
 	// Create a channel to collect all messages received by the server
 	messages := make(chan []byte, 100)

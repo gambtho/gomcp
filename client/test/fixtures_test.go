@@ -362,11 +362,3 @@ func getExpectedVersion(clientVersion, serverVersion string) string {
 	// regardless of what version the client requested
 	return serverVersion
 }
-
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

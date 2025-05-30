@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -99,22 +100,23 @@ func TestClientMode(t *testing.T) {
 		close(serverDone)
 
 		// Keep the connection open with a timeout
-		select {
-		case <-time.After(500 * time.Millisecond):
-			// Connection kept alive for enough time, now we can exit
-			return
-		}
+		<-time.After(500 * time.Millisecond)
+		// Connection kept alive for enough time, now we can exit
+		return
 	}))
 	defer server.Close()
 
 	// Create client transport
 	transport := NewTransport(server.URL)
 
-	// Set up message handler to collect received messages
-	receivedMessages := make([]string, 0, len(messages))
+	// Use a slice with mutex protection instead of channels
+	var receivedMessages []string
+	var mu sync.Mutex
 
 	transport.SetMessageHandler(func(msg []byte) ([]byte, error) {
+		mu.Lock()
 		receivedMessages = append(receivedMessages, string(msg))
+		mu.Unlock()
 		return nil, nil
 	})
 
@@ -152,20 +154,28 @@ func TestClientMode(t *testing.T) {
 				}
 			}
 			if found {
+				mu.Lock()
 				receivedMessages = append(receivedMessages, string(msg))
+				mu.Unlock()
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Clean up
+	// Clean up - stop transport first to ensure message handler stops
 	err = transport.Stop()
 	if err != nil {
 		t.Fatalf("Stop failed: %v", err)
 	}
 
+	// Now it's safe to read the collected messages
+	mu.Lock()
+	finalMessages := make([]string, len(receivedMessages))
+	copy(finalMessages, receivedMessages)
+	mu.Unlock()
+
 	// Verify that we got at least some messages
-	if len(receivedMessages) == 0 {
+	if len(finalMessages) == 0 {
 		t.Errorf("Expected to receive some messages, got none")
 	}
 }

@@ -32,8 +32,8 @@ func (s *serverImpl) AsStdio(logFile ...string) Server {
 	if len(logFile) > 0 && logFile[0] != "" {
 		// Ensure directory exists
 		logDir := filepath.Dir(logFile[0])
-		if logDir != "." {
-			os.MkdirAll(logDir, 0755)
+		if err := os.MkdirAll(logDir, 0755); err != nil {
+			slog.Default().Error("Failed to create log directory", "dir", logDir, "error", err)
 		}
 
 		// Open log file

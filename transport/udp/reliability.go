@@ -76,6 +76,7 @@ type ReliabilityMetrics struct {
 	AverageRTT           time.Duration   // Average round-trip time
 	rtts                 []time.Duration // Recent RTTs for calculation
 	rttsMu               sync.Mutex      // Mutex for RTTs
+	metricsMu            sync.RWMutex    // Mutex for all metrics fields
 	maxRTTs              int             // Maximum number of RTTs to track
 }
 
@@ -283,8 +284,10 @@ func (rm *ReliabilityManager) retransmitMessage(messageID uint32) {
 		delete(rm.pendingMessages, messageID)
 		rm.pendingMu.Unlock()
 
-		// Update metrics
+		// Update metrics with proper locking
+		rm.metrics.metricsMu.Lock()
 		rm.metrics.MessagesFailed++
+		rm.metrics.metricsMu.Unlock()
 		return
 	}
 
@@ -331,8 +334,10 @@ func (rm *ReliabilityManager) retransmitMessage(messageID uint32) {
 		}
 	}
 
-	// Update metrics
+	// Update metrics with proper locking
+	rm.metrics.metricsMu.Lock()
 	rm.metrics.PacketsRetransmitted++
+	rm.metrics.metricsMu.Unlock()
 }
 
 // timeoutChecker periodically checks for messages that need retransmission.
@@ -390,13 +395,28 @@ func (rm *ReliabilityManager) updateRTTMetrics(rtt time.Duration) {
 	}
 
 	if len(rm.metrics.rtts) > 0 {
+		// Update AverageRTT with proper locking
+		rm.metrics.metricsMu.Lock()
 		rm.metrics.AverageRTT = total / time.Duration(len(rm.metrics.rtts))
+		rm.metrics.metricsMu.Unlock()
 	}
 }
 
 // GetMetrics returns the current reliability metrics.
 func (rm *ReliabilityManager) GetMetrics() ReliabilityMetrics {
-	return rm.metrics
+	rm.metrics.metricsMu.RLock()
+	defer rm.metrics.metricsMu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	return ReliabilityMetrics{
+		PacketsSent:          rm.metrics.PacketsSent,
+		PacketsRetransmitted: rm.metrics.PacketsRetransmitted,
+		AcksReceived:         rm.metrics.AcksReceived,
+		MessagesFailed:       rm.metrics.MessagesFailed,
+		AverageRTT:           rm.metrics.AverageRTT,
+		maxRTTs:              rm.metrics.maxRTTs,
+		// Note: rtts slice is not copied as it's protected by its own mutex
+	}
 }
 
 // WithReliabilityLevel sets the reliability level for the transport.
