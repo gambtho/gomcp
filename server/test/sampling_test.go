@@ -9,41 +9,41 @@ import (
 )
 
 // mockTransport is a simple mock transport for testing
-type mockTransport struct {
-	messages       [][]byte
-	sendCallback   func(message []byte) ([]byte, error)
-	requestHistory [][]byte
-	messageHandler func([]byte)
-}
+// type mockTransport struct {
+// 	messages       [][]byte
+// 	sendCallback   func(message []byte) ([]byte, error)
+// 	requestHistory [][]byte
+// 	messageHandler func([]byte)
+// }
 
-func (m *mockTransport) Send(message []byte) ([]byte, error) {
-	// Record the request in history
-	if m.requestHistory == nil {
-		m.requestHistory = make([][]byte, 0)
-	}
-	m.requestHistory = append(m.requestHistory, message)
+// func (m *mockTransport) Send(message []byte) ([]byte, error) {
+// 	// Record the request in history
+// 	if m.requestHistory == nil {
+// 		m.requestHistory = make([][]byte, 0)
+// 	}
+// 	m.requestHistory = append(m.requestHistory, message)
 
-	if m.sendCallback != nil {
-		return m.sendCallback(message)
-	}
-	return nil, nil
-}
+// 	if m.sendCallback != nil {
+// 		return m.sendCallback(message)
+// 	}
+// 	return nil, nil
+// }
 
-func (m *mockTransport) SetMessageHandler(handler func([]byte)) {
-	m.messageHandler = handler
-}
+// func (m *mockTransport) SetMessageHandler(handler func([]byte)) {
+// 	m.messageHandler = handler
+// }
 
-// GetRequestHistory returns the history of requests sent through this transport
-func (m *mockTransport) GetRequestHistory() [][]byte {
-	return m.requestHistory
-}
+// // GetRequestHistory returns the history of requests sent through this transport
+// func (m *mockTransport) GetRequestHistory() [][]byte {
+// 	return m.requestHistory
+// }
 
-// SimulateMessage simulates receiving a message from the client
-func (m *mockTransport) SimulateMessage(message []byte) {
-	if m.messageHandler != nil {
-		m.messageHandler(message)
-	}
-}
+// // SimulateMessage simulates receiving a message from the client
+// func (m *mockTransport) SimulateMessage(message []byte) {
+// 	if m.messageHandler != nil {
+// 		m.messageHandler(message)
+// 	}
+// }
 
 func TestTextSamplingContent(t *testing.T) {
 	textContent := &server.TextSamplingContent{

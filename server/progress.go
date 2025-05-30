@@ -78,7 +78,7 @@ type ProgressRateLimiter struct {
 	batchSize      int
 	batchTimeout   time.Duration
 	currentBatch   []*mcp.ProgressNotification
-	batchTimer     *time.Timer
+	batchTimer     *time.Timer // TODO: Implement batching timer functionality
 
 	// Statistics
 	totalNotifications    int64

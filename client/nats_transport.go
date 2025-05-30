@@ -103,6 +103,7 @@ func (t *NATSTransport) Connect() error {
 		// TLS configuration would be implemented here
 		// opts = append(opts, nats.ClientCert(t.tlsConfig.CertFile, t.tlsConfig.KeyFile))
 		// opts = append(opts, nats.RootCAs(t.tlsConfig.CAFile))
+		slog.Default().Debug("TLS configuration provided but not yet implemented")
 	}
 
 	// Connect to NATS server

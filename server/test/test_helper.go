@@ -411,10 +411,8 @@ func CreateAudioSamplingMessage(role, audioData, mimeType string) SamplingMessag
 
 // Context represents the context for a request/response cycle
 type Context struct {
-	ctx      context.Context
 	Request  *Request
 	Response *Response
-	server   server.Server
 	Version  string
 	Metadata map[string]interface{}
 }
@@ -441,6 +439,6 @@ type Response struct {
 type ToolHandler func(*Context, interface{}) (interface{}, error)
 
 // Utility function for resource handler conversion
-func convertToResourceHandler(handler interface{}) (server.ResourceHandler, bool) {
-	return server.ConvertToResourceHandler(handler)
-}
+// func convertToResourceHandler(handler interface{}) (server.ResourceHandler, bool) {
+// 	return server.ConvertToResourceHandler(handler)
+// }

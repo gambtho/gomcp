@@ -700,12 +700,3 @@ func validateContentItem(t *testing.T, item interface{}, contentIndex, itemIndex
 		}
 	}
 }
-
-// Helper function to get all keys from a map
-func getKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}

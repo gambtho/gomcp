@@ -413,10 +413,8 @@ func CreateRoot(path, name string, metadata map[string]interface{}) map[string]i
 		"name": name,
 	}
 
-	if metadata != nil {
-		for k, v := range metadata {
-			root[k] = v
-		}
+	for k, v := range metadata {
+		root[k] = v
 	}
 
 	return root

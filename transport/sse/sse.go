@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -192,6 +193,7 @@ func (t *Transport) Start() error {
 	go func() {
 		if err := t.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			// Log error
+			slog.Default().Error("SSE server error", "error", err)
 		}
 	}()
 

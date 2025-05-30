@@ -191,6 +191,7 @@ func (s *serverImpl) ProcessResourceTemplatesList(ctx *Context) (interface{}, er
 // This function standardizes resource response format by ensuring the contents field
 // follows the expected structure, with proper URI and content fields.
 // Returns the properly formatted response.
+// TODO: This function is currently unused but may be needed for future resource formatting
 func ensureContentsArray(response map[string]interface{}, uri string) map[string]interface{} {
 	// If it already has a properly formatted contents array, we're good
 	if contentsArr, hasContents := response["contents"].([]interface{}); hasContents && len(contentsArr) > 0 {
@@ -355,6 +356,7 @@ func ensureContentsArray(response map[string]interface{}, uri string) map[string
 // It ensures that each content item has the required fields based on its type
 // and that all fields are properly formatted.
 // Returns a normalized array of content items that conform to the specification.
+// TODO: This function is currently unused but may be needed for future content validation
 func ensureValidContentItems(items []interface{}) []interface{} {
 	validItems := make([]interface{}, 0, len(items))
 
@@ -586,6 +588,7 @@ func (s *serverImpl) findResourceAndExtractParams(uri string) (*Resource, map[st
 // formatResourceResponse formats the result of a resource handler execution
 // according to the MCP protocol specification for the given version.
 // Handles different response formats based on the type of the result.
+// TODO: This function is currently unused but may be needed for future resource response formatting
 func formatResourceResponse(result interface{}, version string) interface{} {
 	// If the result is already a properly formatted resource response, handle it appropriately
 	if _, ok := result.(*ResourceResponse); ok {
@@ -620,6 +623,7 @@ func formatResourceResponse(result interface{}, version string) interface{} {
 // formatResourceContentArray formats a resource response as a content array.
 // This is used for older protocol versions that expect a different response format.
 // Returns a properly formatted response for the appropriate protocol version.
+// TODO: This function is currently unused but may be needed for future resource content formatting
 func formatResourceContentArray(result interface{}, version string) interface{} {
 	// Create a default content array
 	var contents []interface{}
@@ -668,6 +672,7 @@ func formatResourceContentArray(result interface{}, version string) interface{} 
 // formatContentResponse formats a resource response for the latest protocol versions.
 // It creates a structured response with contents and metadata based on the result type.
 // The includeMetadata parameter controls whether to include additional metadata fields.
+// TODO: This function is currently unused but may be needed for future content response formatting
 func formatContentResponse(result interface{}, includeMetadata bool) map[string]interface{} {
 	var content []map[string]interface{}
 
@@ -778,6 +783,7 @@ func formatContentResponse(result interface{}, includeMetadata bool) map[string]
 // isContentArray checks if an array is a valid content array.
 // A valid content array contains maps with a "type" field indicating content type.
 // Returns true if the array is a valid content array, false otherwise.
+// TODO: This function is currently unused but may be needed for future content array validation
 func isContentArray(arr []interface{}) bool {
 	if len(arr) == 0 {
 		return false
@@ -827,6 +833,7 @@ func isContentArray(arr []interface{}) bool {
 // validateContentArray checks and converts an array to a valid content array if possible.
 // If the array contains valid content items or can be converted to valid content items,
 // it returns the content array and true. Otherwise, it returns nil and false.
+// TODO: This function is currently unused but may be needed for future content array validation
 func validateContentArray(arr []interface{}) ([]map[string]interface{}, bool) {
 	if len(arr) == 0 {
 		return nil, false

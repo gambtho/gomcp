@@ -1546,6 +1546,7 @@ func TestProgressReporterConcurrency(t *testing.T) {
 					if progress <= total {
 						if err := reporter3.Update(progress, fmt.Sprintf("Writer %d update %d", goroutineID, j)); err != nil {
 							// Log error but continue (expected in concurrent scenarios)
+							_ = err // Acknowledge error but don't log to avoid race conditions in tests
 						}
 					}
 

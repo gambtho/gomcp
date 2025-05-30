@@ -411,7 +411,7 @@ func (rt *requestTracker) setupTimeout(id int, timeout time.Duration) {
 	rt.timeouts[id] = timer
 }
 
-// getPendingCount returns the number of currently pending requests
+// TODO: This function is currently unused but may be needed for future request tracking
 func (rt *requestTracker) getPendingCount() int {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()

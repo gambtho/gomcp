@@ -260,11 +260,6 @@ func TestVersionSpecificErrors(t *testing.T) {
 	}
 }
 
-// Helper function to check if a string contains another string
-func contains(s, substr string) bool {
-	return s != "" && substr != "" && s != substr && len(s) > len(substr) && s[len(s)-len(substr):] == substr
-}
-
 // TestVersionUpgradeDowngrade tests the client's ability to handle
 // reconnecting to a server with a different version
 func TestVersionUpgradeDowngrade(t *testing.T) {

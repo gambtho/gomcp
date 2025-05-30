@@ -128,6 +128,7 @@ func (t *Transport) Initialize() error {
 	if t.tlsConfig != nil {
 		// TLS configuration is set but not used in this context
 		// TODO: Implement TLS configuration if needed
+		slog.Default().Debug("TLS configuration provided but not yet implemented")
 	}
 
 	// Connect to NATS server
@@ -268,6 +269,7 @@ func (t *Transport) messageHandler(msg *nats.Msg) {
 		if msg.Reply != "" && response != nil {
 			if err := t.conn.Publish(msg.Reply, response); err != nil {
 				// Log error but continue
+				slog.Default().Error("Failed to publish reply message", "error", err, "reply_subject", msg.Reply)
 			}
 			return
 		}
@@ -277,6 +279,7 @@ func (t *Transport) messageHandler(msg *nats.Msg) {
 			responseSubject := t.getClientSubject(clientID)
 			if err := t.conn.Publish(responseSubject, response); err != nil {
 				// Log error but continue
+				slog.Default().Error("Failed to publish response to client", "error", err, "client_id", clientID, "subject", responseSubject)
 			}
 		}
 	}

@@ -73,7 +73,8 @@ func TestGetRoots(t *testing.T) {
 	}
 
 	// Check that modifying the returned slice doesn't affect the original
-	roots = append(roots, "/path/to/root3")
+	modifiedRoots := append(roots, "/path/to/root3")
+	_ = modifiedRoots // We don't use this variable, just testing the append doesn't affect original
 	if len(svr.GetServer().GetRoots()) != 2 {
 		t.Errorf("Expected internal roots to still be 2, got %d", len(svr.GetServer().GetRoots()))
 	}

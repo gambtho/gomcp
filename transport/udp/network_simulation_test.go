@@ -101,6 +101,7 @@ func TestPacketLoss(t *testing.T) {
 					// Only log if test is still running and it's not a normal close
 					if !strings.Contains(err.Error(), "use of closed") {
 						// Don't use t.Logf here to avoid possible race with test completion
+						_ = err // Acknowledge error but don't log to avoid race conditions
 					}
 				}
 				continue
@@ -787,6 +788,7 @@ func clientToServerProxy(t *testing.T, proxyConn *net.UDPConn, serverAddr string
 				// Only log if not a standard close and the test is still running
 				if !strings.Contains(err.Error(), "use of closed") {
 					// Avoid using t.Logf as test might be complete
+					_ = err // Acknowledge error but don't log to avoid race conditions
 				}
 				continue
 			}

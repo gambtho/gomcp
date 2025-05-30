@@ -102,10 +102,8 @@ func CreateToolResponseWithID(id interface{}, output interface{}, metadata map[s
 	}
 
 	// Add metadata if provided
-	if metadata != nil {
-		for k, v := range metadata {
-			result[k] = v
-		}
+	for k, v := range metadata {
+		result[k] = v
 	}
 
 	response := map[string]interface{}{
@@ -308,10 +306,8 @@ func CreatePromptResponseWithID(id interface{}, prompt, rendered string, metadat
 	}
 
 	// Add metadata if provided
-	if metadata != nil {
-		for k, v := range metadata {
-			result[k] = v
-		}
+	for k, v := range metadata {
+		result[k] = v
 	}
 
 	response := map[string]interface{}{

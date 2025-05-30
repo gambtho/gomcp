@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -89,6 +90,8 @@ func (t *MQTTTransport) Connect() error {
 	// Configure TLS if provided
 	if t.tlsConfig != nil {
 		// TLS configuration would be implemented here
+		// TODO: Implement TLS configuration for MQTT client transport
+		slog.Default().Debug("TLS configuration provided but not yet implemented")
 	}
 
 	// Set connection lost handler
@@ -178,7 +181,7 @@ func (t *MQTTTransport) SendWithContext(ctx context.Context, message []byte) ([]
 		return nil, fmt.Errorf("invalid JSON message: %w", err)
 	}
 
-	requestID, _ := requestMap["id"]
+	requestID := requestMap["id"]
 
 	// Define the listener for responses
 	responseCh := make(chan []byte, 1)

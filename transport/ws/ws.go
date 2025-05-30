@@ -7,6 +7,7 @@ package ws
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -151,6 +152,7 @@ func (t *Transport) Start() error {
 	go func() {
 		if err := t.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			// Log error
+			slog.Default().Error("WebSocket server error", "error", err)
 		}
 	}()
 

@@ -102,7 +102,6 @@ func TestClientMode(t *testing.T) {
 		// Keep the connection open with a timeout
 		<-time.After(500 * time.Millisecond)
 		// Connection kept alive for enough time, now we can exit
-		return
 	}))
 	defer server.Close()
 

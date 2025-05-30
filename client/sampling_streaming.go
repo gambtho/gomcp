@@ -394,7 +394,7 @@ func (c *clientImpl) RequestStreamingSampling(
 			// This is just a placeholder that would be replaced with actual transport-specific code
 
 			// Reset retry count after successful processing
-			retryCount = 0
+			// retryCount = 0 // This assignment is ineffectual since we return immediately after
 
 			// In a real implementation, we'd either:
 			// 1. Wait for the next message from a stream (WebSockets/SSE case)

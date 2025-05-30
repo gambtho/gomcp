@@ -7,6 +7,7 @@ package mqtt
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -122,6 +123,8 @@ func (t *Transport) Initialize() error {
 	// Configure TLS if provided
 	if t.tlsConfig != nil {
 		// TLS configuration would be implemented here
+		// TODO: Implement TLS configuration for MQTT transport
+		slog.Default().Debug("TLS configuration provided but not yet implemented")
 	}
 
 	// Set connection lost handler
@@ -146,6 +149,7 @@ func (t *Transport) Initialize() error {
 			if err := t.subscribe(topic, qos); err != nil {
 				// Log error but continue with other subscriptions
 				// In a real implementation, you might want to handle this more gracefully
+				slog.Default().Error("Failed to resubscribe to topic", "topic", topic, "error", err)
 			}
 		}
 	})

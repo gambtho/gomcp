@@ -205,10 +205,10 @@ func TestFluentToolRegistration(t *testing.T) {
 }
 
 // Helper function to get the keys of a map as a slice
-func getMapKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
+// func getMapKeys(m map[string]interface{}) []string {
+// 	keys := make([]string, 0, len(m))
+// 	for k := range m {
+// 		keys = append(keys, k)
+// 	}
+// 	return keys
+// }
