@@ -15,10 +15,10 @@ import (
 	"github.com/localrivet/gomcp/transport"
 	"github.com/localrivet/gomcp/transport/mqtt"
 	"github.com/localrivet/gomcp/transport/nats"
+	"github.com/localrivet/gomcp/transport/sse"
 	"github.com/localrivet/gomcp/transport/stdio"
 	"github.com/localrivet/gomcp/transport/udp"
 	"github.com/localrivet/gomcp/transport/unix"
-	"github.com/localrivet/gomcp/transport/sse"
 )
 
 // Server represents an MCP server with fluent configuration methods.
