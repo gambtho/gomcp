@@ -424,9 +424,9 @@ func (t *SSETransport) SendWithContext(ctx context.Context, message []byte) ([]b
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		errMsg := fmt.Sprintf("HTTP request failed with status: %d, body: %s", resp.StatusCode, string(body))
-		t.logger.Debug(errMsg)
-		return nil, fmt.Errorf(errMsg)
+		errMsg := fmt.Errorf("HTTP request failed with status: %d, body: %s", resp.StatusCode, string(body))
+		t.logger.Debug(errMsg.Error())
+		return nil, errMsg
 	}
 
 	// Read the response body
