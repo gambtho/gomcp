@@ -66,7 +66,7 @@ func (c *clientImpl) Connect() error {
 func (c *clientImpl) initialize() error {
 	// Determine which protocol version(s) to send
 	var protocolVersion interface{}
-	
+
 	// If a negotiated version was already set (via WithProtocolVersion),
 	// use that single version instead of the full array
 	if c.negotiatedVersion != "" {
@@ -75,7 +75,7 @@ func (c *clientImpl) initialize() error {
 		// Otherwise use the full list of supported versions
 		protocolVersion = c.versionDetector.Supported
 	}
-	
+
 	// Create the initialize request
 	initRequest := map[string]interface{}{
 		"jsonrpc": "2.0",
