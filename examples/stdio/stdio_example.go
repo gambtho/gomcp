@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/localrivet/gomcp/server"
 )
@@ -31,6 +32,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Generated greeting for: %s\n", args.Name)
 		return map[string]interface{}{
 			"greeting": greeting,
+		}, nil
+	})
+
+	// Register a tool with no required fields
+	srv.Tool("timestamp", "Get current timestamp", func(ctx *server.Context, args struct {
+		Format *string `json:"format,omitempty"`
+	}) (map[string]interface{}, error) {
+		format := "2006-01-02 15:04:05"
+		if args.Format != nil {
+			format = *args.Format
+		}
+		timestamp := time.Now().Format(format)
+		return map[string]interface{}{
+			"timestamp": timestamp,
 		}, nil
 	})
 

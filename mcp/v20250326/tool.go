@@ -18,7 +18,7 @@ type ToolDefinition struct {
 type ToolInputSchema struct {
 	Type       string                    `json:"type"`
 	Properties map[string]PropertyDetail `json:"properties"`
-	Required   []string                  `json:"required,omitempty"`
+	Required   []string                  `json:"required"`
 }
 
 // PropertyDetail represents a JSON Schema property definition

@@ -23,7 +23,7 @@ type ToolDefinition struct {
 type ToolInputSchema struct {
 	Type                 string                    `json:"type"`
 	Properties           map[string]PropertyDetail `json:"properties"`
-	Required             []string                  `json:"required,omitempty"`
+	Required             []string                  `json:"required"`
 	AdditionalProperties *bool                     `json:"additionalProperties,omitempty"` // New in draft
 	OneOf                []json.RawMessage         `json:"oneOf,omitempty"`                // New in draft
 	AnyOf                []json.RawMessage         `json:"anyOf,omitempty"`                // New in draft

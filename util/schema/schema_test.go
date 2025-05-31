@@ -378,3 +378,139 @@ func float64Ptr(v float64) *float64 {
 func intPtr(v int) *int {
 	return &v
 }
+
+func TestToolInputSchemaRequiredFieldNeverNull(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected []string
+	}{
+		{
+			name: "struct with required fields",
+			input: struct {
+				Name string `json:"name"`
+				Age  int    `json:"age"`
+			}{},
+			expected: []string{"name", "age"},
+		},
+		{
+			name: "struct with optional fields only",
+			input: struct {
+				Format *string `json:"format,omitempty"`
+			}{},
+			expected: []string{}, // Should be empty array, not null
+		},
+		{
+			name: "struct with mixed fields",
+			input: struct {
+				Required string  `json:"required"`
+				Optional *string `json:"optional,omitempty"`
+			}{},
+			expected: []string{"required"},
+		},
+		{
+			name:     "empty struct",
+			input:    struct{}{},
+			expected: []string{}, // Should be empty array, not null
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := FromStruct(tt.input)
+
+			// Verify schema.Required is never nil
+			if schema.Required == nil {
+				t.Errorf("Required field should never be nil, got nil")
+			}
+
+			// Verify the correct required fields
+			if len(schema.Required) != len(tt.expected) {
+				t.Errorf("Expected %d required fields, got %d", len(tt.expected), len(schema.Required))
+			}
+
+			for _, expected := range tt.expected {
+				found := false
+				for _, actual := range schema.Required {
+					if actual == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected required field '%s' not found in %v", expected, schema.Required)
+				}
+			}
+
+			// Most importantly: JSON marshal and verify it's an array, not null
+			jsonBytes, err := json.Marshal(schema)
+			if err != nil {
+				t.Fatalf("Failed to marshal schema: %v", err)
+			}
+
+			var unmarshaled map[string]interface{}
+			if err := json.Unmarshal(jsonBytes, &unmarshaled); err != nil {
+				t.Fatalf("Failed to unmarshal schema: %v", err)
+			}
+
+			// Check that required field exists and is an array
+			requiredField, exists := unmarshaled["required"]
+			if !exists {
+				t.Errorf("Required field missing from JSON output")
+			}
+
+			// Verify it's an array, not null
+			requiredArray, isArray := requiredField.([]interface{})
+			if !isArray {
+				t.Errorf("Required field should be an array, got %T: %v", requiredField, requiredField)
+			}
+
+			// Verify array length matches expected
+			if len(requiredArray) != len(tt.expected) {
+				t.Errorf("JSON required array has %d elements, expected %d", len(requiredArray), len(tt.expected))
+			}
+
+			t.Logf("Schema JSON: %s", string(jsonBytes))
+		})
+	}
+}
+
+func TestGenerateSchemaRequiredFieldNeverNull(t *testing.T) {
+	generator := NewGenerator()
+
+	// Test with struct that has no required fields
+	schema, err := generator.GenerateSchema(struct {
+		Optional *string `json:"optional,omitempty"`
+	}{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Marshal to JSON and verify
+	jsonBytes, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatalf("Failed to marshal schema: %v", err)
+	}
+
+	var unmarshaled map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &unmarshaled); err != nil {
+		t.Fatalf("Failed to unmarshal schema: %v", err)
+	}
+
+	// Check that required field is an empty array, not null
+	requiredField, exists := unmarshaled["required"]
+	if !exists {
+		t.Errorf("Required field missing from JSON output")
+	}
+
+	requiredArray, isArray := requiredField.([]interface{})
+	if !isArray {
+		t.Errorf("Required field should be an array, got %T: %v", requiredField, requiredField)
+	}
+
+	if len(requiredArray) != 0 {
+		t.Errorf("Expected empty required array, got %v", requiredArray)
+	}
+
+	t.Logf("Generated schema JSON: %s", string(jsonBytes))
+}

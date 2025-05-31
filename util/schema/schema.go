@@ -31,7 +31,7 @@ type PropertyDetail struct {
 type ToolInputSchema struct {
 	Type       string                    `json:"type"`
 	Properties map[string]PropertyDetail `json:"properties"`
-	Required   []string                  `json:"required,omitempty"`
+	Required   []string                  `json:"required"`
 }
 
 // Generator generates JSON Schema from Go types.
@@ -249,11 +249,7 @@ func FromStruct(v interface{}) ToolInputSchema {
 	schema := ToolInputSchema{
 		Type:       "object",
 		Properties: props,
-	}
-
-	// Only add Required field if there are any required fields
-	if len(requiredFields) > 0 {
-		schema.Required = requiredFields
+		Required:   requiredFields,
 	}
 
 	return schema
