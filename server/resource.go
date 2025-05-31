@@ -118,10 +118,11 @@ func (s *serverImpl) Resource(path, description string, handler interface{}) Ser
 		})
 	}()
 
-	// Send notification asynchronously to avoid blocking
-	go func() {
-		// TODO: Implement SendResourcesListChangedNotification
-	}()
+	// Mark resources as changed for potential notifications
+	s.capabilityCache.MarkResourcesChanged()
+
+	// Send simple notification if client is already initialized
+	s.sendCapabilityNotification("resources")
 
 	return s
 }
@@ -922,4 +923,46 @@ func extractSchemaFromHandler(handler interface{}) (map[string]interface{}, erro
 	return map[string]interface{}{
 		"type": "object",
 	}, nil
+}
+
+// SendResourcesListChangedNotification sends a notification to inform clients that the resource list has changed.
+// This is called when resources are added, removed, or updated, allowing clients to refresh their available resources.
+func (s *serverImpl) SendResourcesListChangedNotification() error {
+	// Create the notification message
+	notification := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "notifications/resources/list_changed",
+	}
+
+	// Marshal the notification to JSON
+	notificationBytes, err := json.Marshal(notification)
+	if err != nil {
+		return fmt.Errorf("failed to marshal notification: %w", err)
+	}
+
+	// Check if the server is initialized (minimize lock scope)
+	s.mu.RLock()
+	initialized := s.initialized
+	transport := s.transport
+	s.mu.RUnlock()
+
+	// If the server is not initialized, queue the notification for later
+	if !initialized {
+		s.capabilityCache.QueueNotification(notificationBytes)
+		s.logger.Debug("queued resources/list_changed notification for after initialization")
+		return nil
+	}
+
+	// Send the notification through the configured transport (no mutex needed for this)
+	if transport != nil {
+		if err := transport.Send(notificationBytes); err != nil {
+			s.logger.Error("failed to send notification", "error", err)
+			return fmt.Errorf("failed to send notification: %w", err)
+		}
+	} else {
+		s.logger.Warn("no transport configured, skipping notification")
+	}
+
+	s.logger.Debug("sent resources/list_changed notification")
+	return nil
 }

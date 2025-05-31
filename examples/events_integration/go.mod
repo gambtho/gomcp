@@ -1,4 +1,4 @@
-module github.com/localrivet/gomcp/examples/stdio
+module github.com/localrivet/gomcp/examples/events_integration
 
 go 1.24.0
 

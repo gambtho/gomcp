@@ -271,12 +271,10 @@ func (s *serverImpl) registerTool(name string, description string, handler inter
 	}()
 
 	// Mark tools as changed for potential notifications
-	s.toolsChanged = true
+	s.capabilityCache.MarkToolsChanged()
 
-	// Send notification asynchronously to avoid blocking
-	go func() {
-		s.sendNotification("tools/list_changed", nil)
-	}()
+	// Send simple notification if client is already initialized
+	s.sendCapabilityNotification("tools")
 
 	s.logger.Debug("tool registered", "name", name, "description", description)
 }
@@ -640,9 +638,7 @@ func (s *serverImpl) SendToolsListChangedNotification() error {
 
 	// If the server is not initialized, queue the notification for later
 	if !initialized {
-		s.mu.Lock()
-		s.pendingNotifications = append(s.pendingNotifications, notificationBytes)
-		s.mu.Unlock()
+		s.capabilityCache.QueueNotification(notificationBytes)
 		s.logger.Debug("queued tools/list_changed notification for after initialization")
 		return nil
 	}

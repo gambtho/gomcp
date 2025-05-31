@@ -1,4 +1,4 @@
-module github.com/localrivet/gomcp/examples/stdio
+module github.com/localrivet/gomcp/examples/comprehensive
 
 go 1.24.0
 

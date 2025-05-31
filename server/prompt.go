@@ -155,8 +155,11 @@ func (s *serverImpl) Prompt(name string, description string, templates ...Prompt
 		Arguments:   arguments,
 	}
 
-	// Send notification that prompts list has changed
-	s.sendNotification("notifications/prompts/list_changed", nil)
+	// Mark prompts as changed for potential notifications
+	s.capabilityCache.MarkPromptsChanged()
+
+	// Send simple notification if client is already initialized
+	s.sendCapabilityNotification("prompts")
 
 	return s
 }
@@ -401,4 +404,46 @@ func (s *serverImpl) ProcessPromptRequest(ctx *Context) (interface{}, error) {
 		"description": prompt.Description,
 		"messages":    renderedTemplates,
 	}, nil
+}
+
+// SendPromptsListChangedNotification sends a notification to inform clients that the prompt list has changed.
+// This is called when prompts are added, removed, or updated, allowing clients to refresh their available prompts.
+func (s *serverImpl) SendPromptsListChangedNotification() error {
+	// Create the notification message
+	notification := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "notifications/prompts/list_changed",
+	}
+
+	// Marshal the notification to JSON
+	notificationBytes, err := json.Marshal(notification)
+	if err != nil {
+		return fmt.Errorf("failed to marshal notification: %w", err)
+	}
+
+	// Check if the server is initialized (minimize lock scope)
+	s.mu.RLock()
+	initialized := s.initialized
+	transport := s.transport
+	s.mu.RUnlock()
+
+	// If the server is not initialized, queue the notification for later
+	if !initialized {
+		s.capabilityCache.QueueNotification(notificationBytes)
+		s.logger.Debug("queued prompts/list_changed notification for after initialization")
+		return nil
+	}
+
+	// Send the notification through the configured transport (no mutex needed for this)
+	if transport != nil {
+		if err := transport.Send(notificationBytes); err != nil {
+			s.logger.Error("failed to send notification", "error", err)
+			return fmt.Errorf("failed to send notification: %w", err)
+		}
+	} else {
+		s.logger.Warn("no transport configured, skipping notification")
+	}
+
+	s.logger.Debug("sent prompts/list_changed notification")
+	return nil
 }

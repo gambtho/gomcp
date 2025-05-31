@@ -407,14 +407,70 @@ type serverImpl struct {
 	// Only after receiving this notification should the server send feature-specific notifications
 	initialized bool
 
-	// pendingNotifications stores notifications that should be sent after initialization
-	pendingNotifications [][]byte
-
-	// toolsChanged indicates if tools have been modified since the last notification
-	toolsChanged bool
+	// Capability cache system - replaces pendingNotifications and individual change flags
+	// This caches what capabilities exist and tracks changes properly
+	capabilityCache *CapabilityCache
 
 	// events provides the event system for server lifecycle events
 	events *events.Subject
+}
+
+// CapabilityCache manages the caching and change tracking of server capabilities
+type CapabilityCache struct {
+	// Flags to track if capabilities have changed since last notification
+	toolsChanged     bool
+	resourcesChanged bool
+	promptsChanged   bool
+
+	// Cached capability states for quick access
+	hasTools     bool
+	hasResources bool
+	hasPrompts   bool
+
+	// Pending notifications that should be sent after initialization
+	pendingNotifications [][]byte
+}
+
+// NewCapabilityCache creates a new capability cache
+func NewCapabilityCache() *CapabilityCache {
+	return &CapabilityCache{}
+}
+
+// MarkToolsChanged marks that tools have changed and should trigger a notification
+func (c *CapabilityCache) MarkToolsChanged() {
+	c.toolsChanged = true
+	c.hasTools = true
+}
+
+// MarkResourcesChanged marks that resources have changed and should trigger a notification
+func (c *CapabilityCache) MarkResourcesChanged() {
+	c.resourcesChanged = true
+	c.hasResources = true
+}
+
+// MarkPromptsChanged marks that prompts have changed and should trigger a notification
+func (c *CapabilityCache) MarkPromptsChanged() {
+	c.promptsChanged = true
+	c.hasPrompts = true
+}
+
+// QueueNotification adds a notification to be sent after client initialization
+func (c *CapabilityCache) QueueNotification(notification []byte) {
+	c.pendingNotifications = append(c.pendingNotifications, notification)
+}
+
+// GetPendingNotifications returns and clears all pending notifications
+func (c *CapabilityCache) GetPendingNotifications() [][]byte {
+	notifications := c.pendingNotifications
+	c.pendingNotifications = [][]byte{}
+	return notifications
+}
+
+// ResetChangeFlags resets all change tracking flags
+func (c *CapabilityCache) ResetChangeFlags() {
+	c.toolsChanged = false
+	c.resourcesChanged = false
+	c.promptsChanged = false
 }
 
 // GetName returns the server's name.
@@ -516,8 +572,7 @@ func NewServer(name string, options ...Option) Server {
 		versionDetector:      mcp.NewVersionDetector(),
 		sessionManager:       NewSessionManager(),
 		initialized:          false,
-		pendingNotifications: [][]byte{},
-		toolsChanged:         false,
+		capabilityCache:      NewCapabilityCache(),
 		requestCanceller:     NewRequestCanceller(),
 		progressTokenManager: mcp.NewProgressTokenManager(),
 	}
@@ -862,6 +917,11 @@ func (s *serverImpl) GetServer() *serverImpl {
 	return s
 }
 
+// SetTransport sets the transport for the server (primarily for testing)
+func (s *serverImpl) SetTransport(t transport.Transport) {
+	s.transport = t
+}
+
 // sendNotification sends a notification message to the client.
 //
 // Notifications are one-way messages from the server to the client that do not
@@ -902,37 +962,37 @@ func (s *serverImpl) sendNotification(method string, params interface{}) {
 // handleInitializedNotification processes the initialized notification from the client
 // and sends any pending notifications that were queued during the initialization phase.
 func (s *serverImpl) handleInitializedNotification() {
+	// Quick lock to set initialized and get what we need
 	s.mu.Lock()
 	s.initialized = true
-
-	// Process any pending notifications
-	pendingNotifications := s.pendingNotifications
-	s.pendingNotifications = nil
-
-	// Reset the toolsChanged flag
-	s.toolsChanged = false
+	pendingNotifications := s.capabilityCache.GetPendingNotifications()
+	hasTools := s.capabilityCache.hasTools
+	hasResources := s.capabilityCache.hasResources
+	hasPrompts := s.capabilityCache.hasPrompts
+	s.capabilityCache.ResetChangeFlags()
 	s.mu.Unlock()
 
 	s.logger.Debug("client initialized, processing pending notifications",
 		"count", len(pendingNotifications))
 
-	// Publish server initialized event
-	evt := events.ServerInitializedEvent{
-		ServerName:      s.name,
-		ProtocolVersion: s.protocolVersion,
-		ToolCount:       len(s.tools),
-		ResourceCount:   len(s.resources),
-		PromptCount:     len(s.prompts),
-		InitializedAt:   time.Now(),
-		Metadata:        make(map[string]any),
-	}
+	// Publish server initialized event without holding locks
+	go func() {
+		evt := events.ServerInitializedEvent{
+			ServerName:      s.name,
+			ProtocolVersion: s.protocolVersion,
+			ToolCount:       len(s.tools),
+			ResourceCount:   len(s.resources),
+			PromptCount:     len(s.prompts),
+			InitializedAt:   time.Now(),
+			Metadata:        make(map[string]any),
+		}
 
-	// Publish the event (ignore errors to avoid breaking server startup)
-	if err := events.Publish[events.ServerInitializedEvent](s.events, events.TopicServerInitialized, evt); err != nil {
-		s.logger.Debug("failed to publish server initialized event", "error", err)
-	}
+		if err := events.Publish[events.ServerInitializedEvent](s.events, events.TopicServerInitialized, evt); err != nil {
+			s.logger.Debug("failed to publish server initialized event", "error", err)
+		}
+	}()
 
-	// Send any pending notifications
+	// Send any pending notifications without holding locks
 	for _, notification := range pendingNotifications {
 		if s.transport != nil {
 			if err := s.transport.Send(notification); err != nil {
@@ -941,16 +1001,18 @@ func (s *serverImpl) handleInitializedNotification() {
 		}
 	}
 
-	// Always send tools/list_changed notification after initialization
-	// This ensures the client is aware of available tools even if no tools were
-	// added since the server started
+	// Send initial capability notifications without locks
 	go func() {
-		// Add slight delay to ensure client is ready to receive the notification
-		time.Sleep(50 * time.Millisecond)
-		if err := s.SendToolsListChangedNotification(); err != nil {
-			s.logger.Error("failed to send tools list changed notification after initialization", "error", err)
-		} else {
-			s.logger.Debug("sent tools/list_changed notification after client initialization")
+		time.Sleep(50 * time.Millisecond) // Small delay for client readiness
+
+		if hasTools {
+			s.sendCapabilityNotification("tools")
+		}
+		if hasResources {
+			s.sendCapabilityNotification("resources")
+		}
+		if hasPrompts {
+			s.sendCapabilityNotification("prompts")
 		}
 	}()
 }
@@ -1153,4 +1215,37 @@ func getBool(m map[string]interface{}, key string) bool {
 		}
 	}
 	return false
+}
+
+// sendCapabilityNotification sends a single notification for a capability that changed
+// This is much simpler than complex debouncing and follows the be-very-stingy-with-locks rule
+func (s *serverImpl) sendCapabilityNotification(capabilityType string) {
+	// Only send if initialized - no lock needed for reading a single boolean
+	if !s.initialized {
+		return
+	}
+
+	// Send the appropriate notification without holding any locks
+	go func() {
+		switch capabilityType {
+		case "tools":
+			if err := s.SendToolsListChangedNotification(); err != nil {
+				s.logger.Error("failed to send tools notification", "error", err)
+			} else {
+				s.logger.Debug("sent tools/list_changed notification")
+			}
+		case "resources":
+			if err := s.SendResourcesListChangedNotification(); err != nil {
+				s.logger.Error("failed to send resources notification", "error", err)
+			} else {
+				s.logger.Debug("sent resources/list_changed notification")
+			}
+		case "prompts":
+			if err := s.SendPromptsListChangedNotification(); err != nil {
+				s.logger.Error("failed to send prompts notification", "error", err)
+			} else {
+				s.logger.Debug("sent prompts/list_changed notification")
+			}
+		}
+	}()
 }
