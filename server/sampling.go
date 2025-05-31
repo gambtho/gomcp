@@ -221,6 +221,11 @@ func (a *AudioSamplingContent) Validate() error {
 //   - A properly formatted SamplingMessage
 //   - An error if content validation fails
 func CreateSamplingMessage(role string, content SamplingContentHandler) (SamplingMessage, error) {
+	// Validate the role
+	if role != "user" && role != "assistant" {
+		return SamplingMessage{}, fmt.Errorf("invalid role '%s': sampling messages only support 'user' and 'assistant' roles. Use systemPrompt parameter for system instructions", role)
+	}
+
 	if err := content.Validate(); err != nil {
 		return SamplingMessage{}, fmt.Errorf("invalid content: %w", err)
 	}

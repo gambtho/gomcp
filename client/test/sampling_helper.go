@@ -6,54 +6,9 @@ import (
 )
 
 // SetSamplingHandler is a helper function to set a sampling handler on a client
-// This is needed because WithSamplingHandler is not part of the Client interface
-func SetSamplingHandler(c client.Client, handler client.SamplingHandler) {
-	// We need to access the client implementation which has the WithSamplingHandler method
-	// This is done through the actual dispatch methods in client/sampling.go
-	// Create a response that we know will be valid for the client's version
-	resp := client.SamplingResponse{
-		Role: "assistant",
-		Content: client.SamplingMessageContent{
-			Type: "text",
-			Text: "This is a sampling response",
-		},
-	}
-
-	// Register the handler by wrapping it
-	client.RegisterSamplingHandler(c, func(params client.SamplingCreateMessageParams) (client.SamplingResponse, error) {
-		if handler != nil {
-			return handler(params)
-		}
-		return resp, nil
-	})
-}
-
-// SamplingTestHelpers provides access to internal client package functions for testing
-type SamplingTestHelpers struct{}
-
-// ParseSamplingResponseForTest provides access to the parseSamplingResponse function for testing
-func ParseSamplingResponseForTest(data []byte) (*client.SamplingResponse, error) {
-	return client.ParseSamplingResponseForTest(data)
-}
-
-// ValidateSamplingResponseForVersionForTest provides access to validateSamplingResponseForVersion for testing
-func ValidateSamplingResponseForVersionForTest(response *client.SamplingResponse, version string) error {
-	return client.ValidateSamplingResponseForVersionForTest(response, version)
-}
-
-// ParseStreamingSamplingResponseForTest provides access to parseStreamingSamplingResponse for testing
-func ParseStreamingSamplingResponseForTest(data []byte) (*client.StreamingSamplingResponse, error) {
-	return client.ParseStreamingSamplingResponseForTest(data)
-}
-
-// ValidateStreamingSamplingResponseForVersionForTest provides access to validateStreamingSamplingResponseForVersion for testing
-func ValidateStreamingSamplingResponseForVersionForTest(response *client.StreamingSamplingResponse, version string) error {
-	return client.ValidateStreamingSamplingResponseForVersionForTest(response, version)
-}
-
-// IsStreamingSupportedForVersionForTest provides access to isStreamingSupportedForVersion for testing
-func IsStreamingSupportedForVersionForTest(version string) bool {
-	return client.IsStreamingSupportedForVersionForTest(version)
+func SetSamplingHandler(c client.Client, handler client.SamplingHandler) client.Client {
+	// WithSamplingHandler is part of the Client interface
+	return c.WithSamplingHandler(handler)
 }
 
 // NewMockSamplingResponse creates a mock sampling response for testing
@@ -67,15 +22,49 @@ func NewMockSamplingResponse(role string, contentType string, contentText string
 	}
 }
 
-// NewMockStreamingSamplingResponse creates a mock streaming sampling response for testing
-func NewMockStreamingSamplingResponse(role string, contentType string, contentText string, isComplete bool) *client.StreamingSamplingResponse {
-	return &client.StreamingSamplingResponse{
-		Role: role,
-		Content: client.SamplingMessageContent{
-			Type: contentType,
-			Text: contentText,
-		},
-		IsComplete: isComplete,
-		ChunkID:    "test-chunk-1",
-	}
+// CreateTextSamplingMessage creates a text sampling message for testing
+func CreateTextSamplingMessage(role, text string) client.SamplingMessage {
+	return client.CreateTextMessage(role, text)
+}
+
+// CreateImageSamplingMessage creates an image sampling message for testing
+func CreateImageSamplingMessage(role, imageData, mimeType string) client.SamplingMessage {
+	return client.CreateImageMessage(role, imageData, mimeType)
+}
+
+// CreateAudioSamplingMessage creates an audio sampling message for testing
+func CreateAudioSamplingMessage(role, audioData, mimeType string) client.SamplingMessage {
+	return client.CreateAudioMessage(role, audioData, mimeType)
+}
+
+// NewSamplingRequest creates a new sampling options for testing
+func NewSamplingRequest(messages []client.SamplingMessage, prefs client.SamplingModelPreferences) *client.SamplingOptions {
+	return client.NewSamplingOptions(messages, prefs)
+}
+
+// NewSamplingConfig creates a new sampling model preferences for testing
+func NewSamplingConfig() client.SamplingModelPreferences {
+	return client.SamplingModelPreferences{}
+}
+
+// CreateStreamingChatRequest creates a streaming sampling request for testing
+func CreateStreamingChatRequest(messages []client.SamplingMessage, systemPrompt, version string) (*client.SamplingOptions, error) {
+	opts := client.NewSamplingOptions(messages, client.SamplingModelPreferences{}).
+		WithSystemPrompt(systemPrompt)
+	opts.ProtocolVersion = version
+	opts.Streaming = true
+	return opts, nil
+}
+
+// NewStreamingSamplingRequest creates a new streaming sampling options for testing
+func NewStreamingSamplingRequest(messages []client.SamplingMessage, prefs client.SamplingModelPreferences) *client.SamplingOptions {
+	opts := client.NewSamplingOptions(messages, prefs)
+	opts.Streaming = true
+	return opts
+}
+
+// IsStreamingSupportedForVersion checks if streaming is supported for a version
+func IsStreamingSupportedForVersion(version string) bool {
+	// Streaming is supported in 2025-03-26 and later
+	return version == "2025-03-26" || version == "draft"
 }

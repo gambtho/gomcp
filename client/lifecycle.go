@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+
+	"github.com/localrivet/gomcp/events"
 )
 
 // Connect establishes a connection to the server.
@@ -225,6 +227,13 @@ func (c *clientImpl) Close() error {
 
 	c.connected = false
 	c.initialized = false
+
+	// Emit client disconnected event
+	go func() {
+		events.Publish[events.ClientDisconnectedEvent](c.events, events.TopicClientDisconnected, events.ClientDisconnectedEvent{
+			URL: c.url,
+		})
+	}()
 
 	// Cancel the client context
 	c.cancel()

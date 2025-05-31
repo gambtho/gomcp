@@ -13,8 +13,8 @@ func TestToolExecutionDraft(t *testing.T) {
 	// Create a server
 	srv := server.NewServer("test-server-draft")
 
-	// Register a test tool with potential draft features
-	srv.Tool("test-tool", "A simple test tool for draft spec", func(ctx *server.Context, args interface{}) (interface{}, error) {
+	// Register a test tool with potential draft features and annotations
+	srv.Tool("echo", "Echo back the input", func(ctx *server.Context, args interface{}) (interface{}, error) {
 		// Return a response that's compatible with the draft spec
 		// This may need to be updated as the draft evolves
 		return map[string]interface{}{
@@ -36,10 +36,7 @@ func TestToolExecutionDraft(t *testing.T) {
 			},
 			"isError": false,
 		}, nil
-	})
-
-	// Add tool annotations with potential draft extensions
-	srv.WithAnnotations("test-tool", map[string]interface{}{
+	}, map[string]interface{}{
 		"isReadOnly":    true,
 		"isDestructive": false,
 		"category":      "example",
@@ -55,7 +52,7 @@ func TestToolExecutionDraft(t *testing.T) {
 		"id": 1,
 		"method": "tools/call",
 		"params": {
-			"name": "test-tool",
+			"name": "echo",
 			"arguments": {}
 		}
 	}`)

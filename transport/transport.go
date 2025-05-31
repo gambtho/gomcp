@@ -43,13 +43,20 @@ type Transport interface {
 
 	// GetLogger returns the current logger
 	GetLogger() *slog.Logger
+
+	// SetProtocolVersion sets the negotiated MCP protocol version
+	SetProtocolVersion(version string)
+
+	// GetProtocolVersion returns the current protocol version
+	GetProtocolVersion() string
 }
 
 // BaseTransport provides common transport functionality
 type BaseTransport struct {
-	handler      MessageHandler
-	debugHandler DebugHandler
-	logger       *slog.Logger
+	handler         MessageHandler
+	debugHandler    DebugHandler
+	logger          *slog.Logger
+	protocolVersion string
 }
 
 // SetMessageHandler sets the message handler
@@ -81,6 +88,16 @@ func (t *BaseTransport) GetLogger() *slog.Logger {
 		}))
 	}
 	return t.logger
+}
+
+// SetProtocolVersion sets the negotiated MCP protocol version
+func (t *BaseTransport) SetProtocolVersion(version string) {
+	t.protocolVersion = version
+}
+
+// GetProtocolVersion returns the current protocol version
+func (t *BaseTransport) GetProtocolVersion() string {
+	return t.protocolVersion
 }
 
 // HandleMessage handles an incoming message

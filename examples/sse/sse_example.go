@@ -30,21 +30,56 @@ func main() {
 
 	fmt.Printf("Using dynamic address: %s\n", address)
 
+	// Create server and client done channels for coordination
+	serverDone := make(chan bool, 1)
+	clientDone := make(chan bool, 1)
+
 	// Start the server in a goroutine
-	startServer(address)
+	srv := startServer(address, serverDone)
 
 	// Wait a bit longer for the server to initialize
 	time.Sleep(2 * time.Second)
 
 	// Start the client
-	go runClient(address)
+	go runClient(address, clientDone)
 
-	// Wait for termination signal
-	<-signals
-	fmt.Println("\nShutdown signal received, exiting...")
+	// Wait for either client completion or termination signal
+	select {
+	case <-clientDone:
+		fmt.Println("\nClient completed, shutting down server...")
+
+		// Gracefully shut down the server
+		if err := srv.Shutdown(); err != nil {
+			log.Printf("Server shutdown error: %v", err)
+		}
+
+		// Wait for server to finish shutting down
+		select {
+		case <-serverDone:
+			fmt.Println("Server shutdown complete")
+		case <-time.After(5 * time.Second):
+			fmt.Println("Server shutdown timeout")
+		}
+
+	case <-signals:
+		fmt.Println("\nShutdown signal received, exiting...")
+
+		// Gracefully shut down the server
+		if err := srv.Shutdown(); err != nil {
+			log.Printf("Server shutdown error: %v", err)
+		}
+
+		// Wait for server to finish shutting down
+		select {
+		case <-serverDone:
+			fmt.Println("Server shutdown complete")
+		case <-time.After(5 * time.Second):
+			fmt.Println("Server shutdown timeout")
+		}
+	}
 }
 
-func startServer(address string) {
+func startServer(address string, done chan bool) server.Server {
 	// Create a new server
 	srv := server.NewServer("sse-example-server")
 
@@ -63,14 +98,25 @@ func startServer(address string) {
 
 	// Start the server in a goroutine
 	go func() {
+		defer func() {
+			done <- true
+		}()
+
 		fmt.Println("Starting SSE server on", address)
 		if err := srv.Run(); err != nil {
-			log.Fatalf("Server error: %v", err)
+			log.Printf("Server error: %v", err)
 		}
+		fmt.Println("Server stopped")
 	}()
+
+	return srv
 }
 
-func runClient(address string) {
+func runClient(address string, done chan bool) {
+	defer func() {
+		done <- true
+	}()
+
 	// Use explicit http:// scheme for the SSE server
 	// Do NOT include the /sse path - the transport will handle that
 	serverURL := fmt.Sprintf("http://%s", address)

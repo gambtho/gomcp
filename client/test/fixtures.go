@@ -162,7 +162,7 @@ func setupResourceServer(t *testing.T, m *MockTransport) {
 					return false
 				}
 
-				if method, ok := request["method"].(string); !ok || method != "resource/get" {
+				if method, ok := request["method"].(string); !ok || method != "resources/read" {
 					return false
 				}
 
@@ -171,8 +171,8 @@ func setupResourceServer(t *testing.T, m *MockTransport) {
 					return false
 				}
 
-				path, ok := params["path"].(string)
-				return ok && path == res.path
+				uri, ok := params["uri"].(string)
+				return ok && uri == res.path
 			},
 		)
 	}

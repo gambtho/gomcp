@@ -162,8 +162,8 @@ server := gomcp.NewServer("MyService", gomcp.WithLogger(myLogger)).
 
     // Add a prompt with template
     Prompt("greeting", "Greet a user",
-        system("You are a helpful assistant for {{service}}."),
-        user("Hello, my name is {{name}}."),
+        user("Hello, my name is {{name}}. I'm using {{service}}."),
+        assistant("Hello {{name}}! Welcome to {{service}}. How can I help you today?"),
     ).
 
     // Define the root resource

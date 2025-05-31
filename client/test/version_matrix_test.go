@@ -199,7 +199,7 @@ func TestResourceOperations(t *testing.T) {
 				}
 
 				// Verify the request was properly formatted
-				AssertMethodEquals(t, m.LastSentMessage, "resource/get")
+				AssertMethodInHistory(t, m, "resources/read")
 
 				// Get the raw response directly from the mock transport
 				if len(m.ResponseHistory) == 0 {
@@ -277,9 +277,9 @@ func TestResourceOperations(t *testing.T) {
 					t.Fatal("Expected params object in request")
 				}
 
-				path, ok := params["path"].(string)
+				path, ok := params["uri"].(string)
 				if !ok || path != "/test-resource?param=value" {
-					t.Errorf("Expected path to be '/test-resource?param=value', got %v", path)
+					t.Errorf("Expected uri to be '/test-resource?param=value', got %v", path)
 				}
 			},
 		},
@@ -392,7 +392,7 @@ func TestToolOperations(t *testing.T) {
 				}
 
 				// Verify the request format
-				AssertMethodEquals(t, m.LastSentMessage, "tools/call")
+				AssertMethodInHistory(t, m, "tools/call")
 
 				// Check tool name and arguments
 				var request map[string]interface{}
@@ -460,7 +460,7 @@ func TestPromptOperations(t *testing.T) {
 				}
 
 				// Verify request format
-				AssertMethodEquals(t, m.LastSentMessage, "prompt/get")
+				AssertMethodInHistory(t, m, "prompts/get")
 
 				// Check prompt name and variables
 				var request map[string]interface{}
@@ -477,9 +477,9 @@ func TestPromptOperations(t *testing.T) {
 					t.Errorf("Expected prompt name to be 'test-prompt', got %v", params["name"])
 				}
 
-				vars, ok := params["variables"].(map[string]interface{})
+				vars, ok := params["arguments"].(map[string]interface{})
 				if !ok {
-					t.Fatal("Expected variables object in request")
+					t.Fatal("Expected arguments object in request")
 				}
 
 				if vars["name"] != "Test" {
@@ -520,7 +520,7 @@ func TestRootOperations(t *testing.T) {
 				}
 
 				// Verify the add request
-				AssertMethodEquals(t, m.LastSentMessage, "roots/add")
+				AssertMethodInHistory(t, m, "roots/add")
 
 				// Clear history before the next operation
 				m.ClearHistory()
@@ -557,7 +557,7 @@ func TestRootOperations(t *testing.T) {
 				}
 
 				// Verify the list request
-				AssertMethodEquals(t, m.LastSentMessage, "roots/list")
+				AssertMethodInHistory(t, m, "roots/list")
 
 				// Clear history before the next operation
 				m.ClearHistory()
@@ -578,7 +578,7 @@ func TestRootOperations(t *testing.T) {
 				}
 
 				// Verify the remove request
-				AssertMethodEquals(t, m.LastSentMessage, "roots/remove")
+				AssertMethodInHistory(t, m, "roots/remove")
 			},
 		},
 	}
@@ -625,7 +625,7 @@ func TestSamplingOperations(t *testing.T) {
 				// Simulate a sampling request from server
 				samplingParams := client.SamplingCreateMessageParams{
 					Messages: []client.SamplingMessage{
-						client.CreateTextSamplingMessage("user", "Hello, world!"),
+						CreateTextSamplingMessage("user", "Hello, world!"),
 					},
 					ModelPreferences: client.SamplingModelPreferences{
 						Hints: []client.SamplingModelHint{
@@ -731,7 +731,7 @@ func TestSamplingOperations(t *testing.T) {
 				// Simulate a sampling request from server with image content
 				samplingParams := client.SamplingCreateMessageParams{
 					Messages: []client.SamplingMessage{
-						client.CreateImageSamplingMessage("user", "base64encodedimage", "image/jpeg"),
+						CreateImageSamplingMessage("user", "base64encodedimage", "image/jpeg"),
 					},
 					ModelPreferences: client.SamplingModelPreferences{
 						Hints: []client.SamplingModelHint{
@@ -810,7 +810,7 @@ func TestSamplingOperations(t *testing.T) {
 				// Simulate a sampling request from server with audio content
 				samplingParams := client.SamplingCreateMessageParams{
 					Messages: []client.SamplingMessage{
-						client.CreateAudioSamplingMessage("user", "base64encodedaudio", "audio/wav"),
+						CreateAudioSamplingMessage("user", "base64encodedaudio", "audio/wav"),
 					},
 					ModelPreferences: client.SamplingModelPreferences{},
 					SystemPrompt:     "You are a test assistant",

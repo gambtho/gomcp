@@ -100,8 +100,8 @@ func TestBuilderFunctions(t *testing.T) {
 
 	// Test NewResourceRequest
 	resReq := NewResourceRequest(3, "/test/path")
-	if resReq.Method != "resource/get" {
-		t.Errorf("Expected Method 'resource/get', got %s", resReq.Method)
+	if resReq.Method != "resources/read" {
+		t.Errorf("Expected Method 'resources/read', got %s", resReq.Method)
 	}
 
 	// Marshal and validate JSON structure
@@ -120,7 +120,7 @@ func TestBuilderFunctions(t *testing.T) {
 		t.Fatalf("Expected params to be a map, got %T", parsed["params"])
 	}
 
-	if path, ok := params["path"].(string); !ok || path != "/test/path" {
-		t.Errorf("Expected path '/test/path', got %v", params["path"])
+	if uri, ok := params["uri"].(string); !ok || uri != "/test/path" {
+		t.Errorf("Expected uri '/test/path', got %v", params["uri"])
 	}
 }

@@ -557,3 +557,21 @@ func EnsureConnected(transport *MockTransport) {
 	transport.Connected = true
 	transport.mu.Unlock()
 }
+
+// AssertMethodInHistory checks if the specified method was sent in the message history
+func AssertMethodInHistory(t *testing.T, m *MockTransport, expectedMethod string) {
+	history := m.GetRequestHistory()
+	for _, request := range history {
+		var data map[string]interface{}
+		if err := json.Unmarshal(request.Message, &data); err != nil {
+			continue // Skip malformed messages
+		}
+
+		if method, ok := data["method"].(string); ok && method == expectedMethod {
+			return // Found the method
+		}
+	}
+
+	// If we get here, the method was not found
+	t.Errorf("Expected method '%s' was not found in message history", expectedMethod)
+}

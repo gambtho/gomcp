@@ -14,13 +14,12 @@ func TestFluentToolRegistration(t *testing.T) {
 	srv := server.NewServer("integration-test").
 		Tool("tool1", "First test tool", func(ctx *server.Context, args interface{}) (interface{}, error) {
 			return "Tool 1 Response", nil
+		}, map[string]interface{}{
+			"isReadOnly": true,
+			"category":   "test",
 		}).
 		Tool("tool2", "Second test tool", func(ctx *server.Context, args interface{}) (interface{}, error) {
 			return "Tool 2 Response", nil
-		}).
-		WithAnnotations("tool1", map[string]interface{}{
-			"isReadOnly": true,
-			"category":   "test",
 		})
 
 	// Create a JSON-RPC request for tool list

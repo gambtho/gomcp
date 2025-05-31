@@ -21,9 +21,9 @@ func NewResourceRequest(id interface{}, path string) *JSONRPC {
 	return &JSONRPC{
 		Version: "2.0",
 		ID:      id,
-		Method:  "resource/get",
+		Method:  "resources/read",
 		Params: ResourceParams{
-			Path: path,
+			URI: path,
 		},
 	}
 }
@@ -33,9 +33,9 @@ func NewResourceRequestWithOptions(id interface{}, path string, options map[stri
 	return &JSONRPC{
 		Version: "2.0",
 		ID:      id,
-		Method:  "resource/get",
+		Method:  "resources/read",
 		Params: ResourceParams{
-			Path:    path,
+			URI:     path,
 			Options: options,
 		},
 	}
@@ -46,10 +46,10 @@ func NewPromptRequest(id interface{}, name string, variables map[string]interfac
 	return &JSONRPC{
 		Version: "2.0",
 		ID:      id,
-		Method:  "prompt/get",
+		Method:  "prompts/get",
 		Params: PromptParams{
 			Name:      name,
-			Variables: variables,
+			Arguments: variables,
 		},
 	}
 }
@@ -70,7 +70,7 @@ func NewRootAddRequest(id interface{}, path, name string) *JSONRPC {
 		ID:      id,
 		Method:  "roots/add",
 		Params: RootAddParams{
-			Path: path,
+			URI:  path,
 			Name: name,
 		},
 	}
@@ -83,7 +83,7 @@ func NewRootRemoveRequest(id interface{}, path string) *JSONRPC {
 		ID:      id,
 		Method:  "roots/remove",
 		Params: RootRemoveParams{
-			Path: path,
+			URI: path,
 		},
 	}
 }

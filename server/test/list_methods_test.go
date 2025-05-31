@@ -12,28 +12,39 @@ func TestServerListMethods(t *testing.T) {
 	srv := server.NewServer("test-server")
 
 	// Add some test tools
-	srv.Tool("calculator", "Perform mathematical calculations", func(ctx *server.Context, args struct {
-		Operation string  `json:"operation"`
-		A         float64 `json:"a"`
-		B         float64 `json:"b"`
-	}) (float64, error) {
-		switch args.Operation {
-		case "add":
-			return args.A + args.B, nil
-		case "subtract":
-			return args.A - args.B, nil
-		default:
-			return 0, nil
+	srv.Tool("calculator", "Perform mathematical calculations", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		// Extract arguments from the context request
+		if ctx.Request == nil || ctx.Request.ToolArgs == nil {
+			return 0.0, nil
 		}
-	}).WithAnnotations("calculator", map[string]interface{}{
+
+		argsMap := ctx.Request.ToolArgs
+		operation, _ := argsMap["operation"].(string)
+		a, _ := argsMap["a"].(float64)
+		b, _ := argsMap["b"].(float64)
+
+		switch operation {
+		case "add":
+			return a + b, nil
+		case "subtract":
+			return a - b, nil
+		default:
+			return 0.0, nil
+		}
+	}, map[string]interface{}{
 		"category": "math",
 		"icon":     "calculator",
 	})
 
-	srv.Tool("echo", "Echo the input text", func(ctx *server.Context, args struct {
-		Text string `json:"text"`
-	}) (string, error) {
-		return args.Text, nil
+	srv.Tool("echo", "Echo the input text", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		// Extract arguments from the context request
+		if ctx.Request == nil || ctx.Request.ToolArgs == nil {
+			return "", nil
+		}
+
+		argsMap := ctx.Request.ToolArgs
+		text, _ := argsMap["text"].(string)
+		return text, nil
 	})
 
 	// Add some test resources (simplified without parameters)
@@ -53,9 +64,19 @@ func TestServerListMethods(t *testing.T) {
 		}, nil
 	})
 
+	// Register a test resource
+	srv.Resource("/test/resource", "Test resource", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return "Resource data", nil
+	})
+
+	// Register a test resource template
+	srv.Resource("/users/{id}", "User by ID", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return "User data", nil
+	})
+
 	// Add some test prompts
-	srv.Prompt("greeting", "A friendly greeting", "Hello, {{name}}! How are you today?")
-	srv.Prompt("summary", "Summarize content", "Please summarize the following content:\n\n{{content}}")
+	srv.Prompt("greeting", "A friendly greeting", server.User("Hello, {{name}}! How are you today?"))
+	srv.Prompt("summary", "Summarize content", server.User("Please summarize the following content:\n\n{{content}}"))
 
 	// Test ListTools
 	t.Run("ListTools", func(t *testing.T) {
@@ -113,8 +134,8 @@ func TestServerListMethods(t *testing.T) {
 			t.Fatalf("ListResources failed: %v", err)
 		}
 
-		if len(resources) != 2 {
-			t.Fatalf("Expected 2 resources, got %d", len(resources))
+		if len(resources) != 3 {
+			t.Fatalf("Expected 3 resources, got %d", len(resources))
 		}
 
 		// Check that we have the expected resources
@@ -227,11 +248,16 @@ func TestServerListMethodsConsistency(t *testing.T) {
 	srv := server.NewServer("consistency-test")
 
 	// Add a tool with all possible fields
-	srv.Tool("test_tool", "Test tool for consistency", func(ctx *server.Context, args struct {
-		Input string `json:"input"`
-	}) (string, error) {
-		return args.Input, nil
-	}).WithAnnotations("test_tool", map[string]interface{}{
+	srv.Tool("test_tool", "Test tool for consistency", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		// Extract arguments from the context request
+		if ctx.Request == nil || ctx.Request.ToolArgs == nil {
+			return "", nil
+		}
+
+		argsMap := ctx.Request.ToolArgs
+		input, _ := argsMap["input"].(string)
+		return input, nil
+	}, map[string]interface{}{
 		"test": "annotation",
 	})
 

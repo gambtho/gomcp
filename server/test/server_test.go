@@ -89,7 +89,7 @@ func TestPromptRegistration(t *testing.T) {
 	s := server.NewServer("test-server")
 
 	// Register a prompt
-	s.Prompt("test-prompt", "Test prompt", "Template 1", "Template 2")
+	s.Prompt("test-prompt", "Test prompt", server.User("Template 1"), server.User("Template 2"))
 
 	// Since we can't access internal fields directly in the test package,
 	// we'll test the functionality by checking for the prompt in a prompts/list response

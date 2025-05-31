@@ -300,14 +300,13 @@ func (a AudioResource) ToResourceResponse() map[string]interface{} {
 		"mimeType": a.MimeType, // Required in all versions
 	}
 
-	// Add URL field for draft version which uses audioUrl
+	// Add URL field if available (used in draft version as audioUrl)
 	if a.URL != "" {
 		contentItem["audioUrl"] = a.URL
 	}
 
-	// Add Data field for v20250326 version, but only if URL is not provided
-	// This ensures we don't add both URL and Data which could cause confusion
-	if a.Data != "" && a.URL == "" {
+	// Add Data field if available (used in v20250326 version)
+	if a.Data != "" {
 		contentItem["data"] = a.Data
 	}
 

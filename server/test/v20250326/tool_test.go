@@ -13,14 +13,11 @@ func TestToolExecutionV20250326(t *testing.T) {
 	// Create a server
 	srv := server.NewServer("test-server-2025-03-26")
 
-	// Register a test tool with 2025-03-26 features
-	srv.Tool("test-tool", "A simple test tool for 2025-03-26 spec", func(ctx *server.Context, args interface{}) (interface{}, error) {
+	// Register a test tool with 2025-03-26 features and annotations
+	srv.Tool("echo", "Echo back the input", func(ctx *server.Context, args interface{}) (interface{}, error) {
 		// Return a response that's compatible with 2025-03-26 spec
 		return "This is a 2025-03-26 tool response", nil
-	})
-
-	// Add tool annotations
-	srv.WithAnnotations("test-tool", map[string]interface{}{
+	}, map[string]interface{}{
 		"isReadOnly":    true,
 		"isDestructive": false,
 		"category":      "utility",
@@ -33,7 +30,7 @@ func TestToolExecutionV20250326(t *testing.T) {
 		"id": 1,
 		"method": "tools/call",
 		"params": {
-			"name": "test-tool",
+			"name": "echo",
 			"arguments": {}
 		}
 	}`)

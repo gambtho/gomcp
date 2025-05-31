@@ -50,6 +50,14 @@ func (c *clientImpl) AddRoot(uri string, name string) error {
 		c.capabilities.Roots.ListChanged = true
 	}
 
+	// Send notification that the roots list has changed
+	if err := c.sendRootsListChangedNotification(); err != nil {
+		// Log error but don't fail the operation
+		// The root was successfully added, notification failure shouldn't break that
+		// TODO: Add proper logging when available
+		_ = err
+	}
+
 	return nil
 }
 
@@ -85,6 +93,14 @@ func (c *clientImpl) RemoveRoot(uri string) error {
 
 	// Remove the root from our local cache
 	c.roots = append(c.roots[:foundIndex], c.roots[foundIndex+1:]...)
+
+	// Send notification that the roots list has changed
+	if err := c.sendRootsListChangedNotification(); err != nil {
+		// Log error but don't fail the operation
+		// The root was successfully removed, notification failure shouldn't break that
+		// TODO: Add proper logging when available
+		_ = err
+	}
 
 	return nil
 }

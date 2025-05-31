@@ -737,18 +737,6 @@ func (pr *ProgressReporter) Update(current float64, message ...string) error {
 		}
 	}
 
-	// Deactivate token AFTER sending notification
-	if pr.tokenManager != nil {
-		if err := pr.tokenManager.DeactivateToken(pr.token); err != nil {
-			// Log error but don't fail the completion
-			// TODO: Add proper logging when logger is available
-			_ = err // Acknowledge the error to satisfy linter
-		}
-	}
-
-	// Note: Removed hierarchical parent update to eliminate deadlocks
-	// This can be re-added later with a different architecture if needed
-
 	return nil
 }
 

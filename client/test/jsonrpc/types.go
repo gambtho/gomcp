@@ -28,25 +28,25 @@ type ToolParams struct {
 
 // ResourceParams defines parameters for resource retrieval
 type ResourceParams struct {
-	Path    string                 `json:"path"`
+	URI     string                 `json:"uri"`
 	Options map[string]interface{} `json:"options,omitempty"`
 }
 
 // PromptParams defines parameters for prompt retrieval
 type PromptParams struct {
 	Name      string                 `json:"name"`
-	Variables map[string]interface{} `json:"variables"`
+	Arguments map[string]interface{} `json:"arguments"`
 }
 
 // RootAddParams defines parameters for adding a root
 type RootAddParams struct {
-	Path string `json:"path"`
+	URI  string `json:"uri"`
 	Name string `json:"name"`
 }
 
 // RootRemoveParams defines parameters for removing a root
 type RootRemoveParams struct {
-	Path string `json:"path"`
+	URI string `json:"uri"`
 }
 
 // ToolResult defines the result of a tool execution

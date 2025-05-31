@@ -50,7 +50,7 @@ func TestGetResource_v20250326(t *testing.T) {
 		t.Fatalf("Failed to parse request JSON: %v", err)
 	}
 
-	test.AssertMethodEquals(t, mockTransport.LastSentMessage, "resource/get")
+	test.AssertMethodEquals(t, mockTransport.LastSentMessage, "resources/read")
 
 	// Verify the resource content was parsed correctly
 	if resource == nil {
@@ -109,7 +109,7 @@ func TestGetPrompt_v20250326(t *testing.T) {
 		t.Fatalf("Failed to parse request JSON: %v", err)
 	}
 
-	test.AssertMethodEquals(t, mockTransport.LastSentMessage, "prompt/get")
+	test.AssertMethodEquals(t, mockTransport.LastSentMessage, "prompts/get")
 
 	// Verify the parameters
 	params, ok := request["params"].(map[string]interface{})
@@ -157,8 +157,13 @@ func TestRoots_v20250326(t *testing.T) {
 	}
 
 	// Verify the add request format
+	addRequests := mockTransport.GetRequestsByMethod("roots/add")
+	if len(addRequests) != 1 {
+		t.Fatalf("Expected 1 roots/add request, got %d", len(addRequests))
+	}
+
 	var addRequest map[string]interface{}
-	if err := json.Unmarshal(mockTransport.LastSentMessage, &addRequest); err != nil {
+	if err := json.Unmarshal(addRequests[0].Message, &addRequest); err != nil {
 		t.Fatalf("Failed to parse add request: %v", err)
 	}
 
@@ -205,8 +210,13 @@ func TestRoots_v20250326(t *testing.T) {
 	}
 
 	// Verify the get roots request format
+	getRootsRequests := mockTransport.GetRequestsByMethod("roots/list")
+	if len(getRootsRequests) != 1 {
+		t.Fatalf("Expected 1 roots/list request, got %d", len(getRootsRequests))
+	}
+
 	var getRootsRequest map[string]interface{}
-	if err := json.Unmarshal(mockTransport.LastSentMessage, &getRootsRequest); err != nil {
+	if err := json.Unmarshal(getRootsRequests[0].Message, &getRootsRequest); err != nil {
 		t.Fatalf("Failed to parse get roots request: %v", err)
 	}
 
@@ -229,8 +239,13 @@ func TestRoots_v20250326(t *testing.T) {
 	}
 
 	// Verify the remove request format
+	removeRequests := mockTransport.GetRequestsByMethod("roots/remove")
+	if len(removeRequests) != 1 {
+		t.Fatalf("Expected 1 roots/remove request, got %d", len(removeRequests))
+	}
+
 	var removeRequest map[string]interface{}
-	if err := json.Unmarshal(mockTransport.LastSentMessage, &removeRequest); err != nil {
+	if err := json.Unmarshal(removeRequests[0].Message, &removeRequest); err != nil {
 		t.Fatalf("Failed to parse remove request: %v", err)
 	}
 

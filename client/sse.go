@@ -10,7 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/localrivet/gomcp/mcp"
@@ -23,11 +23,10 @@ type SSETransport struct {
 	requestTimeout      time.Duration
 	connectionTimeout   time.Duration
 	notificationHandler func(method string, params []byte)
-	mu                  sync.Mutex
 	respChan            chan []byte // channel for receiving responses
 	respErr             chan error  // channel for receiving errors
-	connected           bool
-	postEndpoint        string // endpoint for sending messages (received from server)
+	connected           atomic.Bool
+	postEndpoint        atomic.Pointer[string] // endpoint for sending messages (received from server)
 	debugEnabled        bool
 	logger              *slog.Logger
 }
@@ -60,7 +59,7 @@ func NewSSETransport(url string, logger *slog.Logger) *SSETransport {
 		connectionTimeout: 10 * time.Second,
 		respChan:          make(chan []byte, 10),
 		respErr:           make(chan error, 5),
-		connected:         false,
+		connected:         atomic.Bool{},
 		debugEnabled:      true,
 		logger:            logger,
 	}
@@ -109,26 +108,7 @@ func (t *SSETransport) handleMessage(message []byte) ([]byte, error) {
 		if connected, ok := jsonMsg["connected"].(bool); ok && connected {
 			t.logger.Debug("Received connected notification")
 			// If we don't have an endpoint yet but received confirmation, use the base URL
-			t.mu.Lock()
-			if t.postEndpoint == "" {
-				baseURL := t.transport.GetAddr()
-				t.logger.Debug("Base URL from transport", "base_url", baseURL)
-				if !strings.HasSuffix(baseURL, "/message") {
-					if !strings.HasSuffix(baseURL, "/") {
-						baseURL += "/"
-					}
-					baseURL += "message"
-				}
-				t.postEndpoint = baseURL
-				t.connected = true
-				t.logger.Debug("Derived endpoint URL", "endpoint", baseURL)
-
-				// Notify about the endpoint
-				if t.notificationHandler != nil {
-					go t.notificationHandler("endpoint", []byte(t.postEndpoint))
-				}
-			}
-			t.mu.Unlock()
+			t.connected.Store(true)
 			return nil, nil
 		}
 	}
@@ -166,13 +146,7 @@ func (t *SSETransport) handleEndpointMessage(message []byte) {
 
 	t.logger.Debug("Processing endpoint URL", "endpoint", endpointURL)
 
-	t.mu.Lock()
-	t.postEndpoint = endpointURL
-	wasConnected := t.connected
-	t.connected = true
-	t.mu.Unlock()
-
-	t.logger.Debug("Stored endpoint URL", "endpoint", endpointURL, "was_connected", wasConnected)
+	t.postEndpoint.Store(&endpointURL)
 
 	// Notify that the endpoint has been received
 	if t.notificationHandler != nil {
@@ -183,7 +157,7 @@ func (t *SSETransport) handleEndpointMessage(message []byte) {
 	}
 
 	// Signal connection success if this is the first time
-	if !wasConnected {
+	if !t.connected.Load() {
 		t.logger.Debug("Connection established with endpoint")
 		select {
 		case t.respChan <- []byte(`{"connected":true}`):
@@ -196,13 +170,11 @@ func (t *SSETransport) handleEndpointMessage(message []byte) {
 
 // Connect establishes a connection to the server.
 func (t *SSETransport) Connect() error {
-	t.mu.Lock()
-	if t.connected && t.postEndpoint != "" {
-		t.mu.Unlock()
-		t.logger.Debug("Already connected with endpoint", "endpoint", t.postEndpoint)
+	endpointPtr := t.postEndpoint.Load()
+	if t.connected.Load() && endpointPtr != nil && *endpointPtr != "" {
+		t.logger.Debug("Already connected with endpoint", "endpoint", *endpointPtr)
 		return nil
 	}
-	t.mu.Unlock()
 
 	// Initialize the transport
 	if err := t.transport.Initialize(); err != nil {
@@ -216,96 +188,48 @@ func (t *SSETransport) Connect() error {
 		return fmt.Errorf("failed to start SSE transport: %w", err)
 	}
 
-	t.logger.Debug("Transport started, waiting for endpoint")
+	t.logger.Debug("Transport started")
 
-	// We need to wait for the endpoint URL to be received
-	endpointReceived := make(chan struct{})
+	// For 2025-03-26 unified MCP endpoint behavior:
+	// The transport connects to /mcp directly and stores the URL for POST requests
+	// We should check if the transport has already established the MCP URL
 
-	// Create a temporary notification handler that will signal when endpoint is received
-	previousHandler := t.notificationHandler
-	t.mu.Lock()
-	t.notificationHandler = func(method string, params []byte) {
-		t.logger.Debug("Notification handler called with method", "method", method, "params", string(params))
-
-		// Call the previous handler if it exists
-		if previousHandler != nil {
-			previousHandler(method, params)
-		}
-
-		// If this is the endpoint notification, signal that we received it
-		if method == "endpoint" {
-			t.logger.Debug("Endpoint notification received", "endpoint", string(params))
-			select {
-			case <-endpointReceived: // Already closed
-				t.logger.Debug("Endpoint already received, ignoring duplicate")
-			default:
-				t.logger.Debug("Signaling endpoint received")
-				close(endpointReceived)
-			}
-		} else if t.postEndpoint != "" {
-			// If we already have the endpoint URL but haven't signaled it yet
-			t.logger.Debug("We have endpoint URL but notification came through different channel")
-			select {
-			case <-endpointReceived: // Already closed
-				t.logger.Debug("Channel already closed, ignoring")
-			default:
-				t.logger.Debug("Signaling endpoint received")
-				close(endpointReceived)
-			}
-		}
-	}
-	t.mu.Unlock()
-
-	// Check if we got the endpoint while setting up the handler
-	t.mu.Lock()
-	if t.connected && t.postEndpoint != "" {
-		t.mu.Unlock()
-		t.logger.Debug("Endpoint was already set", "endpoint", t.postEndpoint)
-		select {
-		case <-endpointReceived: // Already closed
-			t.logger.Debug("Channel already closed")
-		default:
-			t.logger.Debug("Closing endpoint channel")
-			close(endpointReceived)
-		}
-	} else {
-		t.mu.Unlock()
-		t.logger.Debug("Endpoint not set yet, waiting for it")
+	// Wait a short time for the transport to establish connection
+	waitTime := 2 * time.Second
+	if t.connectionTimeout < waitTime {
+		waitTime = t.connectionTimeout
 	}
 
-	// Wait for the endpoint with a timeout
-	t.logger.Debug("Waiting for endpoint signal with timeout", "timeout", t.connectionTimeout)
-	select {
-	case <-endpointReceived:
-		// Endpoint received, connection established
-		t.logger.Debug("Connection successfully established")
-		t.mu.Lock()
-		t.logger.Debug("Final endpoint URL", "endpoint", t.postEndpoint)
-		t.connected = true
-		t.mu.Unlock()
-		return nil
-	case <-time.After(t.connectionTimeout / 2):
-		// Timeout waiting for endpoint - use a derived endpoint
-		t.logger.Debug("Partial timeout - generating default endpoint URL")
-		t.mu.Lock()
-		baseURL := t.transport.GetAddr()
-		// If we don't already have a post endpoint, derive one
-		if t.postEndpoint == "" {
-			if !strings.HasSuffix(baseURL, "/message") {
-				if !strings.HasSuffix(baseURL, "/") {
-					baseURL += "/"
-				}
-				baseURL += "message"
-			}
-			t.postEndpoint = baseURL
-			t.logger.Debug("Using derived endpoint URL", "endpoint", baseURL)
+	startTime := time.Now()
+	for time.Since(startTime) < waitTime {
+		// Check if the underlying transport has connected and has the MCP URL
+		mcpURL := t.transport.GetStoredMCPURL()
+		if mcpURL != "" {
+			t.postEndpoint.Store(&mcpURL)
+			t.connected.Store(true)
+			t.logger.Debug("Got MCP endpoint from transport", "endpoint", mcpURL)
+			return nil
 		}
-		t.connected = true
-		t.mu.Unlock()
 
-		// Even if we didn't receive the notification, let's try to proceed
-		return nil
+		// Short wait before checking again
+		time.Sleep(100 * time.Millisecond)
 	}
+
+	// If we didn't get the endpoint from the transport, derive it
+	t.logger.Debug("Deriving unified MCP endpoint URL")
+	baseURL := t.transport.GetAddr()
+	// For 2025-03-26 spec, use the unified MCP endpoint
+	if !strings.HasSuffix(baseURL, "/mcp") {
+		if !strings.HasSuffix(baseURL, "/") {
+			baseURL += "/"
+		}
+		baseURL = strings.TrimSuffix(baseURL, "/") + "/mcp"
+	}
+	t.postEndpoint.Store(&baseURL)
+	t.connected.Store(true)
+	t.logger.Debug("Using derived unified MCP endpoint URL", "endpoint", baseURL)
+
+	return nil
 }
 
 // ConnectWithContext establishes a connection to the server with context for timeout/cancellation.
@@ -329,17 +253,18 @@ func (t *SSETransport) ConnectWithContext(ctx context.Context) error {
 
 // Disconnect closes the connection to the server.
 func (t *SSETransport) Disconnect() error {
-	t.mu.Lock()
-	if !t.connected {
-		t.mu.Unlock()
+	if !t.connected.Load() {
 		return nil
 	}
 
 	// Mark as disconnected before stopping to prevent reconnection attempts
-	t.connected = false
-	postEndpoint := t.postEndpoint
-	t.postEndpoint = ""
-	t.mu.Unlock()
+	t.connected.Store(false)
+	endpointPtr := t.postEndpoint.Load()
+	var postEndpoint string
+	if endpointPtr != nil {
+		postEndpoint = *endpointPtr
+	}
+	t.postEndpoint.Store(nil)
 
 	if t.debugEnabled {
 		t.logger.Debug("Disconnecting from endpoint", "endpoint", postEndpoint)
@@ -375,20 +300,22 @@ func (t *SSETransport) SendWithContext(ctx context.Context, message []byte) ([]b
 	t.logger.Debug("Sending message", "type", msgType, "message", string(message))
 
 	// Check if we're connected
-	t.mu.Lock()
-	if !t.connected {
-		t.mu.Unlock()
+	if !t.connected.Load() {
 		t.logger.Debug("Error - not connected to SSE server")
 		return nil, fmt.Errorf("not connected to SSE server")
 	}
 
 	// Get the endpoint URL
-	postEndpoint := t.postEndpoint
-	t.mu.Unlock()
-
-	if postEndpoint == "" {
+	endpointPtr := t.postEndpoint.Load()
+	if endpointPtr == nil {
 		t.logger.Debug("Error - missing POST endpoint URL")
 		return nil, fmt.Errorf("missing POST endpoint URL")
+	}
+	postEndpoint := *endpointPtr
+
+	if postEndpoint == "" {
+		t.logger.Debug("Error - empty POST endpoint URL")
+		return nil, fmt.Errorf("empty POST endpoint URL")
 	}
 
 	// Create the HTTP request with context
@@ -449,9 +376,6 @@ func (t *SSETransport) SendWithContext(ctx context.Context, message []byte) ([]b
 
 // SetRequestTimeout sets the default timeout for request operations.
 func (t *SSETransport) SetRequestTimeout(timeout time.Duration) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	t.requestTimeout = timeout
 	if t.debugEnabled {
 		t.logger.Debug("Request timeout set to", "timeout", timeout)
@@ -460,9 +384,6 @@ func (t *SSETransport) SetRequestTimeout(timeout time.Duration) {
 
 // SetConnectionTimeout sets the default timeout for connection operations.
 func (t *SSETransport) SetConnectionTimeout(timeout time.Duration) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	t.connectionTimeout = timeout
 	if t.debugEnabled {
 		t.logger.Debug("Connection timeout set to", "timeout", timeout)
@@ -471,9 +392,6 @@ func (t *SSETransport) SetConnectionTimeout(timeout time.Duration) {
 
 // RegisterNotificationHandler registers a handler for server-initiated messages.
 func (t *SSETransport) RegisterNotificationHandler(handler func(method string, params []byte)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	t.notificationHandler = handler
 	if t.debugEnabled {
 		t.logger.Debug("Notification handler registered")
@@ -482,9 +400,6 @@ func (t *SSETransport) RegisterNotificationHandler(handler func(method string, p
 
 // SetDebugEnabled enables or disables debug logging
 func (t *SSETransport) SetDebugEnabled(enabled bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	t.debugEnabled = enabled
 }
 

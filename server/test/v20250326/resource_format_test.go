@@ -19,8 +19,8 @@ func TestResourceFormatV20250326(t *testing.T) {
 	})
 
 	// Add a simple text resource
-	srv.Resource("/text", "Text resource", func(ctx *server.Context, args interface{}) (interface{}, error) {
-		return "This is a simple text resource", nil
+	srv.Resource("/text", "Text resource test", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return "This is a 2025-03-26 resource response", nil
 	})
 
 	// Add a blob resource
@@ -65,6 +65,22 @@ func TestResourceFormatV20250326(t *testing.T) {
 					},
 				},
 			},
+		}, nil
+	})
+
+	// Add image resource
+	srv.Resource("/image", "Image resource test", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return server.ImageResource{
+			URL:     "https://example.com/image.jpg",
+			AltText: "Test image",
+		}, nil
+	})
+
+	// Add link resource
+	srv.Resource("/link", "Link resource test", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return server.LinkResource{
+			URL:   "https://example.com",
+			Title: "Example Link",
 		}, nil
 	})
 

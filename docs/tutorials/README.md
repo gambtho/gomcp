@@ -23,6 +23,10 @@ This section contains step-by-step tutorials to help you learn how to use GOMCP 
 - [Transport Configuration](server/06-transport-configuration.md)
 - [Advanced Server Features](server/07-advanced-features.md)
 
+### Observability & Monitoring
+
+- [Event System Tutorial](events.md) - Learn how to monitor and react to server and client operations using the comprehensive event system
+
 ## Tutorial Structure
 
 Each tutorial is designed to be:
@@ -39,3 +43,4 @@ If you're new to GOMCP, we recommend following the tutorials in this order:
 1. Start with [Creating a Server](server/01-creating-a-server.md) and [Creating a Client](client/01-creating-a-client.md)
 2. Then explore implementing and calling tools in [Implementing Tools](server/03-implementing-tools.md) and [Calling Tools](client/02-calling-tools.md)
 3. Continue with resources, prompts, and more advanced features
+4. For production deployments, learn about observability with the [Event System Tutorial](events.md)

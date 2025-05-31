@@ -76,6 +76,26 @@ func TestResourceHandlingV20241105(t *testing.T) {
 		}, nil
 	})
 
+	// Register a test resource
+	srv.Resource("/test/data", "Test data", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return "Test data content", nil
+	})
+
+	srv.Resource("/test/json", "Test JSON data", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return map[string]interface{}{
+			"message": "Hello from JSON resource",
+			"version": "2024-11-05",
+		}, nil
+	})
+
+	// Register a resource with template
+	srv.Resource("/users/{id}", "User by ID", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return map[string]interface{}{
+			"id":   "123",
+			"name": "Test User",
+		}, nil
+	})
+
 	// Test text resource
 	t.Run("TextResource", func(t *testing.T) {
 		requestJSON := []byte(`{
@@ -348,9 +368,9 @@ func TestResourceHandlingV20241105(t *testing.T) {
 
 		// Verify we have only non-template resources
 		// Note: Template resources are now excluded from regular resources list
-		// For v20241105 tests, there should be 8 resources (json, file, image, link, text, empty, custom, audio, etc.)
-		if len(resourceListResponse.Result.Resources) != 8 {
-			t.Fatalf("Expected 8 resources, got %d", len(resourceListResponse.Result.Resources))
+		// For v20241105 tests, there should be 10 resources (text, image, link, empty, json, file, custom, audio, test/data, test/json)
+		if len(resourceListResponse.Result.Resources) != 10 {
+			t.Fatalf("Expected 10 resources, got %d", len(resourceListResponse.Result.Resources))
 		}
 
 		// Verify each resource has the required properties according to 2024-11-05 spec

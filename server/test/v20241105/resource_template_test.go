@@ -20,15 +20,21 @@ func TestResourceTemplatesV20241105(t *testing.T) {
 
 	// Register template resources with parameters
 	srv.Resource("/users/{id}", "Get user by ID", func(ctx *server.Context, args interface{}) (interface{}, error) {
-		params := args.(map[string]interface{})
-		userId := params["id"].(string)
-		return "User ID: " + userId, nil
+		return "User data for 2024-11-05", nil
 	})
 
 	srv.Resource("/files/{path*}", "Access files by path", func(ctx *server.Context, args interface{}) (interface{}, error) {
-		params := args.(map[string]interface{})
-		path := params["path"].(string)
-		return "File path: " + path, nil
+		return "File content for 2024-11-05", nil
+	})
+
+	// Register a more complex template
+	srv.Resource("/api/v1/projects/{projectId}/files/{fileId}", "Get project file", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return "Project file content for 2024-11-05", nil
+	})
+
+	// Register a complex template resource for testing
+	srv.Resource("/complex/{category}/items/{id}", "Complex template resource", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return "Complex resource content for 2024-11-05", nil
 	})
 
 	// Test resource templates listing
@@ -57,8 +63,8 @@ func TestResourceTemplatesV20241105(t *testing.T) {
 		}
 
 		// Verify the resource templates
-		if len(response.Result.ResourceTemplates) != 2 {
-			t.Fatalf("Expected 2 resource templates, got %d", len(response.Result.ResourceTemplates))
+		if len(response.Result.ResourceTemplates) != 4 {
+			t.Fatalf("Expected 4 resource templates, got %d", len(response.Result.ResourceTemplates))
 		}
 
 		// Verify each template has the required fields
@@ -197,8 +203,8 @@ func TestResourceTemplatesV20241105(t *testing.T) {
 			t.Errorf("Expected content type to be 'text', got %v", textItem["type"])
 		}
 
-		if textItem["text"] != "User ID: 123" {
-			t.Errorf("Expected text to be 'User ID: 123', got %v", textItem["text"])
+		if textItem["text"] != "User data for 2024-11-05" {
+			t.Errorf("Expected text to be 'User data for 2024-11-05', got %v", textItem["text"])
 		}
 	})
 
@@ -256,7 +262,7 @@ func TestResourceTemplatesV20241105(t *testing.T) {
 			t.Errorf("Expected content type to be 'text', got %v", textItem["type"])
 		}
 
-		expected := "File path: path/to/file.txt"
+		expected := "File content for 2024-11-05"
 		if textItem["text"] != expected {
 			t.Errorf("Expected text to be '%s', got %v", expected, textItem["text"])
 		}

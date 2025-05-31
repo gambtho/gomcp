@@ -30,13 +30,13 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.24-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
     - name: Download dependencies
       run: make deps
 
-    - name: Run full test suite
-      run: make ci
+    - name: Run all checks
+      run: make check
 
     - name: Test all MCP protocol versions
       run: |
@@ -44,8 +44,8 @@ jobs:
         go test -v ./server/test/v20241105/...
         go test -v ./server/test/v20250326/...
 
-    - name: Build examples
-      run: make build-examples
+    - name: Generate coverage report
+      run: make coverage
 
   release:
     name: Create Release
@@ -67,66 +67,7 @@ jobs:
       id: version
       run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-    - name: Build example binaries
-      run: |
-        mkdir -p dist/examples
-        
-        # Define platforms for example binaries
-        platforms=(
-          "linux/amd64"
-          "linux/arm64"
-          "darwin/amd64"
-          "darwin/arm64"
-          "windows/amd64"
-          "windows/arm64"
-        )
-        
-        # Build examples that have main.go files
-        for example_dir in examples/*/; do
-          example_name=$(basename "$example_dir")
-          
-          # Check if this example has a main.go or server/main.go
-          main_file=""
-          if [ -f "${example_dir}main.go" ]; then
-            main_file="${example_dir}"
-          elif [ -f "${example_dir}server/main.go" ]; then
-            main_file="${example_dir}server/"
-          else
-            echo "Skipping $example_name - no main.go found"
-            continue
-          fi
-          
-          echo "Building example: $example_name"
-          
-          for platform in "${platforms[@]}"; do
-            IFS='/' read -r GOOS GOARCH <<< "$platform"
-            
-            # Create platform directory
-            platform_dir="dist/examples/${example_name}/${GOOS}-${GOARCH}"
-            mkdir -p "$platform_dir"
-            
-            binary_name="${example_name}-server"
-            if [ "$GOOS" = "windows" ]; then
-              binary_name="${binary_name}.exe"
-            fi
-            
-            echo "Building $example_name for $GOOS/$GOARCH..."
-            (cd "$main_file" && env GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build \
-              -ldflags="-s -w -X main.version=${{ steps.version.outputs.VERSION }}" \
-              -o "../../${platform_dir}/${binary_name}" \
-              .)
-            
-            # Create archive for this example
-            archive_name="${example_name}-${{ steps.version.outputs.VERSION }}-${GOOS}-${GOARCH}"
-            if [ "$GOOS" = "windows" ]; then
-              (cd "$platform_dir" && zip "../../../${archive_name}.zip" "$binary_name")
-            else
-              (cd "$platform_dir" && tar -czf "../../../${archive_name}.tar.gz" "$binary_name")
-            fi
-          done
-        done
-
-    - name: Generate documentation
+    - name: Generate documentation archive
       run: |
         mkdir -p dist/docs
         
@@ -135,29 +76,23 @@ jobs:
         cp LICENSE dist/docs/
         cp CONTRIBUTING.md dist/docs/
         
+        # Copy examples as documentation
+        if [ -d "examples" ]; then
+          cp -r examples dist/docs/
+        fi
+        
+        # Copy documentation
+        if [ -d "docs" ]; then
+          cp -r docs/* dist/docs/
+        fi
+        
         # Copy specification files
         if [ -d "specification" ]; then
           cp -r specification dist/docs/
         fi
         
-        # Copy examples
-        if [ -d "examples" ]; then
-          cp -r examples dist/docs/
-        fi
-        
-        # Generate Go documentation
-        echo "# GOMCP API Documentation" > dist/docs/API.md
-        echo "" >> dist/docs/API.md
-        echo "Generated for version ${{ steps.version.outputs.VERSION }}" >> dist/docs/API.md
-        echo "" >> dist/docs/API.md
-        
-        # Add package documentation
-        go doc -all . >> dist/docs/API.md || echo "Go doc generation failed"
-
-    - name: Generate checksums
-      run: |
-        cd dist
-        find . -name "*.tar.gz" -o -name "*.zip" | xargs sha256sum > checksums.txt
+        # Create documentation archive
+        tar -czf dist/gomcp-${{ steps.version.outputs.VERSION }}-docs.tar.gz -C dist/docs .
 
     - name: Create source archive
       run: |
@@ -165,13 +100,29 @@ jobs:
         git archive --format=tar.gz --prefix=gomcp-${{ steps.version.outputs.VERSION }}/ HEAD > dist/gomcp-${{ steps.version.outputs.VERSION }}-source.tar.gz
         git archive --format=zip --prefix=gomcp-${{ steps.version.outputs.VERSION }}/ HEAD > dist/gomcp-${{ steps.version.outputs.VERSION }}-source.zip
 
+    - name: Generate checksums
+      run: |
+        cd dist
+        sha256sum *.tar.gz *.zip > checksums.txt
+
     - name: Generate release notes
       id: release_notes
       run: |
         # Generate release notes
-        echo "## GOMCP ${{ steps.version.outputs.VERSION }}" > release_notes.md
+        echo "## GoMCP ${{ steps.version.outputs.VERSION }}" > release_notes.md
         echo "" >> release_notes.md
-        echo "### What's New" >> release_notes.md
+        
+        # Add API stability note for v1.5.0+
+        if [[ "${{ steps.version.outputs.VERSION }}" == v1.5.* ]] || [[ "${{ steps.version.outputs.VERSION }}" > v1.5.0 ]]; then
+          echo "🔒 **API Stability**: This release includes locked, stable APIs ready for production use." >> release_notes.md
+          echo "" >> release_notes.md
+        fi
+        
+        echo "### Installation" >> release_notes.md
+        echo "" >> release_notes.md
+        echo '```bash' >> release_notes.md
+        echo 'go get github.com/localrivet/gomcp@${{ steps.version.outputs.VERSION }}' >> release_notes.md
+        echo '```' >> release_notes.md
         echo "" >> release_notes.md
         
         # Get commits since last tag
@@ -180,27 +131,33 @@ jobs:
           echo "### Changes since $LAST_TAG" >> release_notes.md
           echo "" >> release_notes.md
           git log --pretty=format:"- %s (%h)" $LAST_TAG..HEAD >> release_notes.md
+          echo "" >> release_notes.md
         else
-          echo "- Initial release" >> release_notes.md
+          echo "### Features" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "- Complete MCP protocol implementation (2024-11-05, 2025-03-26, draft)" >> release_notes.md
+          echo "- Client and server libraries with type-safe APIs" >> release_notes.md
+          echo "- Multiple transport options (stdio, HTTP, WebSocket, SSE)" >> release_notes.md
+          echo "- Automatic protocol version negotiation" >> release_notes.md
+          echo "- Comprehensive event system" >> release_notes.md
+          echo "- Server process management" >> release_notes.md
+          echo "" >> release_notes.md
         fi
         
-        echo "" >> release_notes.md
-        echo "### Installation" >> release_notes.md
-        echo "" >> release_notes.md
-        echo '```bash' >> release_notes.md
-        echo 'go get github.com/localrivet/gomcp@${{ steps.version.outputs.VERSION }}' >> release_notes.md
-        echo '```' >> release_notes.md
-        echo "" >> release_notes.md
-        echo "### Example Binaries" >> release_notes.md
-        echo "" >> release_notes.md
-        echo "Pre-built example binaries are available for multiple platforms." >> release_notes.md
-        echo "These demonstrate various MCP transport methods and server implementations." >> release_notes.md
-        echo "" >> release_notes.md
         echo "### Documentation" >> release_notes.md
         echo "" >> release_notes.md
-        echo "- API Documentation: See API.md in the documentation archive" >> release_notes.md
-        echo "- Examples: Check the examples/ directory" >> release_notes.md
-        echo "- MCP Specifications: See specification/ directory" >> release_notes.md
+        echo "- 📖 [API Documentation](https://pkg.go.dev/github.com/localrivet/gomcp@${{ steps.version.outputs.VERSION }})" >> release_notes.md
+        echo "- 💡 [Examples](https://github.com/localrivet/gomcp/tree/${{ steps.version.outputs.VERSION }}/examples)" >> release_notes.md
+        echo "- 📋 [MCP Specifications](https://github.com/localrivet/gomcp/tree/${{ steps.version.outputs.VERSION }}/specification)" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Usage" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "This is a Go SDK/library for building MCP-enabled applications. Import it into your Go projects:" >> release_notes.md
+        echo "" >> release_notes.md
+        echo '```go' >> release_notes.md
+        echo 'import "github.com/localrivet/gomcp/client"' >> release_notes.md
+        echo 'import "github.com/localrivet/gomcp/server"' >> release_notes.md
+        echo '```' >> release_notes.md
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
@@ -216,36 +173,15 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  publish-docs:
-    name: Publish Documentation
-    runs-on: ubuntu-latest
-    needs: release
-    if: ${{ !contains(github.ref_name, '-') }} # Only for stable releases
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.24'
-
-    - name: Generate documentation site
-      run: |
-        # This could be expanded to generate a documentation site
-        # For now, we'll just ensure the docs are available
-        echo "Documentation published with release"
-
   notify:
     name: Notify Release
     runs-on: ubuntu-latest
-    needs: [release, publish-docs]
+    needs: release
     if: always()
     
     steps:
     - name: Release notification
       run: |
-        echo "GOMCP ${GITHUB_REF#refs/tags/} has been released!"
+        echo "GoMCP ${GITHUB_REF#refs/tags/} SDK has been released!"
         echo "Release status: ${{ needs.release.result }}"
-        echo "Docs status: ${{ needs.publish-docs.result }}" 
+        echo "Go modules: Available at github.com/localrivet/gomcp@${GITHUB_REF#refs/tags/}" 

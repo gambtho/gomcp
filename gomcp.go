@@ -7,6 +7,16 @@
 // provides a complete Go implementation of the protocol with support for all specification
 // versions (2024-11-05, 2025-03-26, and draft) with automatic version detection and negotiation.
 //
+// # API Stability (v1.5.0+)
+//
+// Starting with v1.5.0, all public APIs are locked and stable. This library is ready for
+// production use with the following guarantees:
+//
+//   - Client and server APIs will not change in breaking ways
+//   - Transport interfaces are stable and finalized
+//   - Event system types and patterns are locked
+//   - Future releases will be additive and maintain backward compatibility
+//
 // # Core Features
 //
 // - Full MCP protocol implementation
@@ -113,8 +123,9 @@
 //
 // # Versioning
 //
-// gomcp follows semantic versioning. The current version is available through the Version constant.
+// gomcp follows semantic versioning. Starting with v1.5.0, the APIs are locked and stable,
+// making this library ready for production use. The current version is available through the Version constant.
 package gomcp
 
 // Version is the current version of the gomcp library
-const Version = "0.1.0"
+const Version = "1.5.0"

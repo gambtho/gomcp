@@ -25,7 +25,7 @@ func TestGRPCTransport(t *testing.T) {
 	sImpl.AsGRPC(":0")
 
 	// Add a test tool
-	s.Tool("echo", "Echo test", func(ctx *server.Context, args map[string]interface{}) (interface{}, error) {
+	s.Tool("echo", "Echo test", func(ctx *server.Context, args interface{}) (interface{}, error) {
 		return args, nil
 	})
 

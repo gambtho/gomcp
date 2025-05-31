@@ -5,6 +5,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 dev-debug.log
+.roo*
+.task*
+.wind*
+.env*
+
 
 # Dependency directories
 node_modules/

@@ -13,21 +13,18 @@ func TestToolRegistrationAndList(t *testing.T) {
 	// Create a server
 	s := server.NewServer("test-server")
 
-	// Define and register tools
+	// Define and register tools with annotations
 	s.Tool("calculator", "Perform calculations", func(ctx *server.Context, args interface{}) (interface{}, error) {
 		// Simple implementation
 		return "calculator result", nil
+	}, map[string]interface{}{
+		"category": "math",
+		"priority": 1,
 	})
 
 	s.Tool("greeter", "Greet someone", func(ctx *server.Context, args interface{}) (interface{}, error) {
 		// Simple implementation
 		return "greeter result", nil
-	})
-
-	// Add annotations to the calculator tool
-	s.WithAnnotations("calculator", map[string]interface{}{
-		"category": "math",
-		"priority": 1,
 	})
 
 	// Create a tools/list request
@@ -106,11 +103,12 @@ func TestSimpleCalculator(t *testing.T) {
 
 	// Add a calculator tool
 	s.Tool("calculator", "Perform calculations", func(ctx *server.Context, args interface{}) (interface{}, error) {
-		// Extract arguments from the map
-		argsMap, isMap := args.(map[string]interface{})
-		if !isMap {
-			return nil, errors.New("invalid args type")
+		// Extract arguments from the context request
+		if ctx.Request == nil || ctx.Request.ToolArgs == nil {
+			return nil, errors.New("no arguments provided")
 		}
+
+		argsMap := ctx.Request.ToolArgs
 
 		// Extract values
 		xVal, xOK := argsMap["x"].(float64)

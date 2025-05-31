@@ -149,17 +149,17 @@ func AssertVersionCompatibility(t *testing.T, version string, jsonData []byte) {
 	// Check method and perform version-specific validations
 	if method, hasMethod := data["method"].(string); hasMethod {
 		switch method {
-		case "resource/get":
+		case "resources/read":
 			params, ok := data["params"].(map[string]interface{})
 			if !ok {
-				t.Errorf("resource/get should have params object")
+				t.Errorf("resources/read should have params object")
 				return
 			}
 
-			// All versions need a path parameter
-			_, hasPath := params["path"]
-			if !hasPath {
-				t.Errorf("resource/get missing path parameter")
+			// All versions need a uri parameter
+			_, hasURI := params["uri"]
+			if !hasURI {
+				t.Errorf("resources/read missing uri parameter")
 			}
 
 			// Version-specific checks
@@ -167,7 +167,7 @@ func AssertVersionCompatibility(t *testing.T, version string, jsonData []byte) {
 				// 2025-03-26 supports additional options
 				_, hasOptions := params["options"]
 				if !hasOptions {
-					t.Logf("2025-03-26 supports options parameter in resource/get")
+					t.Logf("2025-03-26 supports options parameter in resources/read")
 				}
 			}
 

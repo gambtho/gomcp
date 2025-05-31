@@ -466,8 +466,8 @@ func TestFactories(t *testing.T) {
 
 	// Test ResourceRequest factory
 	resourceReq := ResourceRequest("/test/path")
-	if resourceReq["method"] != "resource/get" {
-		t.Errorf("Expected method to be 'resource/get', got %v", resourceReq["method"])
+	if resourceReq["method"] != "resources/read" {
+		t.Errorf("Expected method to be 'resources/read', got %v", resourceReq["method"])
 	}
 
 	// Test error response factory

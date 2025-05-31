@@ -20,10 +20,19 @@ func TestMQTTServer(t *testing.T) {
 	// srvImpl.AsMQTT("tcp://localhost:1883")
 
 	// Add a simple echo tool for testing
-	srv.Tool("echo", "Echo the input", func(ctx *server.Context, args struct {
-		Message string `json:"message"`
-	}) (map[string]interface{}, error) {
-		return map[string]interface{}{"message": args.Message}, nil
+	srv.Tool("echo", "Echo the input", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		// Extract the message parameter from the request
+		if ctx.Request == nil || ctx.Request.ToolArgs == nil {
+			return map[string]interface{}{"error": "no arguments provided"}, nil
+		}
+
+		// Get the message parameter
+		message, ok := ctx.Request.ToolArgs["message"].(string)
+		if !ok {
+			return map[string]interface{}{"echo": "no message provided"}, nil
+		}
+
+		return map[string]interface{}{"message": message}, nil
 	})
 
 	// Create a done channel to signal shutdown
@@ -78,10 +87,19 @@ func TestMQTTServerWithTLS(t *testing.T) {
 	// })
 
 	// Add a simple echo tool for testing
-	srv.Tool("echo", "Echo the input", func(ctx *server.Context, args struct {
-		Message string `json:"message"`
-	}) (map[string]interface{}, error) {
-		return map[string]interface{}{"message": args.Message}, nil
+	srv.Tool("echo", "Echo the input", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		// Extract the message parameter from the request
+		if ctx.Request == nil || ctx.Request.ToolArgs == nil {
+			return map[string]interface{}{"error": "no arguments provided"}, nil
+		}
+
+		// Get the message parameter
+		message, ok := ctx.Request.ToolArgs["message"].(string)
+		if !ok {
+			return map[string]interface{}{"echo": "no message provided"}, nil
+		}
+
+		return map[string]interface{}{"message": message}, nil
 	})
 
 	// Create a done channel to signal shutdown

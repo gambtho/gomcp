@@ -81,7 +81,7 @@ func TestSessionManager(t *testing.T) {
 	}
 
 	// Test session closure
-	closed := sm.CloseSession(session.ID)
+	_, closed := sm.CloseSession(session.ID, nil)
 	if !closed {
 		t.Error("Failed to close session")
 	}

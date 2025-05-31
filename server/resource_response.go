@@ -275,304 +275,69 @@ func formatResourceV20241105(uri string, result interface{}) map[string]interfac
 	return formatResourceV20241105(uri, string(jsonData))
 }
 
-// formatResourceV20250326 formats a response for the 2025-03-26 and draft MCP specifications
+// formatResourceV20250326 formats a response for the 2025-03-26 MCP specification
 func formatResourceV20250326(uri string, result interface{}) map[string]interface{} {
-	// Special handling for string results
-	if str, ok := result.(string); ok {
-		return map[string]interface{}{
-			"contents": []map[string]interface{}{
-				{
-					"uri":  uri,
-					"text": str, // Required field at this level
-					"content": []map[string]interface{}{
-						{
-							"type": "text",
-							"text": str,
-						},
-					},
+	// Handle specialized resource types first
+	switch v := result.(type) {
+	case TextResource:
+		response := v.ToResourceResponse()
+		return ensureContentsArray(response, uri)
+	case ImageResource:
+		response := v.ToResourceResponse()
+		return ensureContentsArray(response, uri)
+	case LinkResource:
+		response := v.ToResourceResponse()
+		return ensureContentsArray(response, uri)
+	case FileResource:
+		response := v.ToResourceResponse()
+		return ensureContentsArray(response, uri)
+	case JSONResource:
+		response := v.ToResourceResponse()
+		return ensureContentsArray(response, uri)
+	case AudioResource:
+		response := v.ToResourceResponse()
+		return ensureContentsArray(response, uri)
+	}
+
+	// Handle different result types
+	switch v := result.(type) {
+	case string:
+		// Simple text content
+		response := map[string]interface{}{
+			"content": []interface{}{
+				map[string]interface{}{
+					"type": "text",
+					"text": v,
 				},
 			},
 		}
-	}
+		return ensureContentsArray(response, uri)
 
-	// Handle map results, ensuring proper structure
-	if resultMap, ok := result.(map[string]interface{}); ok {
-		// Special case for empty content array
-		if content, hasContent := resultMap["content"]; hasContent {
-			if contentArr, isArray := content.([]interface{}); isArray && len(contentArr) == 0 {
-				// This is an explicitly empty content array, preserve it
-				return map[string]interface{}{
-					"contents": []map[string]interface{}{
-						{
-							"uri":     uri,
-							"text":    "Empty content", // Required field at contents level
-							"content": []interface{}{}, // Keep the empty array
-						},
-					},
-				}
-			}
+	case map[string]interface{}:
+		// If it already has proper structure, ensure contents array format
+		if _, hasContents := v["contents"]; hasContents {
+			return ensureContentsArray(v, uri)
+		}
+		if _, hasContent := v["content"]; hasContent {
+			return ensureContentsArray(v, uri)
 		}
 
-		// Case 1: If the result already has a properly formatted "contents" array (2025-03-26 format)
-		if contents, hasContents := resultMap["contents"]; hasContents {
-			contentsArray := ensureArray(contents)
+		// For other maps, preserve them as-is and let ensureContentsArray handle the conversion
+		return ensureContentsArray(v, uri)
 
-			// If contents is empty, create a default content item
-			if len(contentsArray) == 0 {
-				return map[string]interface{}{
-					"contents": []map[string]interface{}{
-						{
-							"uri":  uri,
-							"text": "Empty content",
-							"content": []map[string]interface{}{
-								{
-									"type": "text",
-									"text": "Empty content",
-								},
-							},
-						},
-					},
-				}
-			}
-
-			// Validate each content item in the contents array
-			validContents := make([]map[string]interface{}, 0, len(contentsArray))
-			for _, item := range contentsArray {
-				if contentItem, ok := item.(map[string]interface{}); ok {
-					// Ensure URI is set
-					if contentItem["uri"] == nil || contentItem["uri"] == "" {
-						contentItem["uri"] = uri
-					}
-
-					// Ensure content array exists and is properly structured
-					innerContent, hasInnerContent := contentItem["content"]
-					if !hasInnerContent || innerContent == nil {
-						// Create default content array if missing
-						contentItem["content"] = []map[string]interface{}{
-							{
-								"type": "text",
-								"text": "Default content",
-							},
-						}
-
-						// Also ensure text field exists
-						if contentItem["text"] == nil {
-							contentItem["text"] = "Default content"
-						}
-					} else if innerArr, isArray := innerContent.([]interface{}); isArray && len(innerArr) == 0 {
-						// This is an explicitly empty content array, preserve it
-						contentItem["content"] = []interface{}{}
-						// But ensure text field exists at content level (required for rendering)
-						if contentItem["text"] == nil {
-							contentItem["text"] = "Empty content"
-						}
-					} else {
-						// Validate inner content array
-						innerContentArray := ensureArray(innerContent)
-
-						// Process and validate each inner content item
-						validInnerContent := make([]map[string]interface{}, 0, len(innerContentArray))
-						for _, innerItem := range innerContentArray {
-							if innerItemMap, ok := innerItem.(map[string]interface{}); ok {
-								// Ensure required type field
-								if innerItemMap["type"] == nil {
-									innerItemMap["type"] = "text"
-								}
-
-								// Handle specific content types
-								switch innerItemMap["type"] {
-								case "text":
-									if innerItemMap["text"] == nil {
-										innerItemMap["text"] = "Default text"
-									}
-								case "image":
-									if innerItemMap["imageUrl"] == nil {
-										// Convert to text if missing required fields
-										innerItemMap["type"] = "text"
-										innerItemMap["text"] = "Invalid image (missing URL)"
-									} else if innerItemMap["altText"] == nil {
-										innerItemMap["altText"] = "Image"
-									}
-								case "link":
-									if innerItemMap["url"] == nil {
-										// Convert to text if missing required fields
-										innerItemMap["type"] = "text"
-										innerItemMap["text"] = "Invalid link (missing URL)"
-									} else if innerItemMap["title"] == nil {
-										innerItemMap["title"] = "Link"
-									}
-								case "audio":
-									// Handle audio content format for 2025-03-26 and draft differently
-									// This is called from formatResourceV20250326 which handles both 2025-03-26 and draft
-									// Let's check if audioUrl is present to detect draft spec format
-									hasAudioUrl := innerItemMap["audioUrl"] != nil
-
-									if hasAudioUrl {
-										// Draft spec uses audioUrl
-										if innerItemMap["mimeType"] == nil {
-											innerItemMap["mimeType"] = "audio/mpeg" // Default mime type
-										}
-										// Remove data field if present to avoid confusion
-										delete(innerItemMap, "data")
-									} else {
-										// 2025-03-26 spec uses data field
-										if innerItemMap["data"] == nil {
-											// No data and no audioUrl - invalid audio
-											innerItemMap["type"] = "text"
-											innerItemMap["text"] = "Invalid audio (missing data)"
-										} else if innerItemMap["mimeType"] == nil {
-											innerItemMap["mimeType"] = "audio/mpeg" // Default mime type
-										}
-									}
-								}
-
-								validInnerContent = append(validInnerContent, innerItemMap)
-							} else {
-								// Convert non-map items to text
-								validInnerContent = append(validInnerContent, map[string]interface{}{
-									"type": "text",
-									"text": fmt.Sprintf("%v", innerItem),
-								})
-							}
-						}
-
-						// If no valid inner content items, keep an empty array
-						if len(validInnerContent) == 0 {
-							contentItem["content"] = []interface{}{}
-						} else {
-							// Update the content array with validated items
-							contentItem["content"] = validInnerContent
-						}
-
-						// Ensure text field at content level exists (required for rendering)
-						if contentItem["text"] == nil {
-							// Use the text from the first text content item or a default
-							foundText := false
-							for _, innerItemMap := range validInnerContent {
-								if innerItemMap["type"] == "text" && innerItemMap["text"] != nil {
-									contentItem["text"] = innerItemMap["text"]
-									foundText = true
-									break
-								}
-							}
-
-							if !foundText {
-								contentItem["text"] = "Content"
-							}
-						}
-					}
-
-					validContents = append(validContents, contentItem)
-				} else {
-					// Convert non-map items to proper content structure
-					validContents = append(validContents, map[string]interface{}{
-						"uri":  uri,
-						"text": fmt.Sprintf("%v", item),
-						"content": []map[string]interface{}{
-							{
-								"type": "text",
-								"text": fmt.Sprintf("%v", item),
-							},
-						},
-					})
-				}
-			}
-
-			// Update contents with validated items
-			resultMap["contents"] = validContents
-			return resultMap
-		}
-
-		// Case 2: Handle content array (2024-11-05 format) and convert to 2025-03-26 format
-		if content, hasContent := resultMap["content"]; hasContent {
-			contentArray := ensureArray(content)
-
-			// Special case for empty content array
-			if len(contentArray) == 0 {
-				return map[string]interface{}{
-					"contents": []map[string]interface{}{
-						{
-							"uri":     uri,
-							"text":    "Empty content", // Required field at contents level
-							"content": []interface{}{}, // Keep the empty array
-						},
-					},
-				}
-			}
-
-			// Create a contents item with the content array nested inside
-			contentsItem := map[string]interface{}{
-				"uri":     uri,
-				"content": contentArray,
-			}
-
-			// Determine the text field for the contents level
-			if len(contentArray) > 0 {
-				foundText := false
-				for _, contentItem := range contentArray {
-					if itemMap, ok := contentItem.(map[string]interface{}); ok {
-						if itemMap["type"] == "text" && itemMap["text"] != nil {
-							contentsItem["text"] = itemMap["text"]
-							foundText = true
-							break
-						}
-					}
-				}
-
-				if !foundText {
-					contentsItem["text"] = "Content"
-				}
-			} else {
-				contentsItem["text"] = "Empty content"
-				// Add a default text content item
-				contentsItem["content"] = []interface{}{}
-			}
-
-			// Create the 2025-03-26 structure
-			// Keep other fields like metadata if they exist
-			result := map[string]interface{}{
-				"contents": []map[string]interface{}{contentsItem},
-			}
-
-			// Copy metadata if present
-			if metadata, hasMetadata := resultMap["metadata"]; hasMetadata {
-				result["metadata"] = metadata
-			}
-
-			return result
-		}
-
-		// Case 3: No recognized structure, create a default one
-		defaultText := "Default content"
-		if len(resultMap) > 0 {
-			jsonBytes, err := json.Marshal(resultMap)
-			if err == nil {
-				defaultText = string(jsonBytes)
-			}
-		}
-
-		return map[string]interface{}{
-			"contents": []map[string]interface{}{
-				{
-					"uri":  uri,
-					"text": defaultText,
-					"content": []map[string]interface{}{
-						{
-							"type": "text",
-							"text": defaultText,
-						},
-					},
+	default:
+		// Convert other types to JSON text
+		jsonStr, _ := json.MarshalIndent(v, "", "  ")
+		response := map[string]interface{}{
+			"content": []interface{}{
+				map[string]interface{}{
+					"type": "text",
+					"text": string(jsonStr),
 				},
 			},
 		}
+		return ensureContentsArray(response, uri)
 	}
-
-	// For any other type, convert to JSON and format as text
-	jsonData, err := json.Marshal(result)
-	if err != nil {
-		return formatResourceV20250326(uri, fmt.Sprintf("%v", result))
-	}
-	return formatResourceV20250326(uri, string(jsonData))
 }
 
 // ensureArray ensures that the provided value is an array

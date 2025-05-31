@@ -47,8 +47,14 @@ func (rc *RequestCanceller) Cancel(requestID interface{}, reason string) bool {
 		return false
 	}
 
-	// Close the cancellation channel to signal cancellation
-	close(cancelCh)
+	// Close the cancellation channel to signal cancellation in a safe way
+	func() {
+		defer func() {
+			// Recover from panic if channel is already closed
+			recover()
+		}()
+		close(cancelCh)
+	}()
 
 	// Remove the request from the map
 	delete(rc.cancellations, requestID)
@@ -67,15 +73,14 @@ func (rc *RequestCanceller) Deregister(requestID interface{}) {
 		return
 	}
 
-	// Try to close the channel in a way that doesn't panic if it's already closed
-	// This helps with race conditions where cancellation and completion happen simultaneously
-	select {
-	case <-cancelCh:
-		// Channel is already closed
-	default:
-		// Channel is still open, close it
+	// Try to close the channel safely to avoid panic from double-close
+	func() {
+		defer func() {
+			// Recover from panic if channel is already closed
+			recover()
+		}()
 		close(cancelCh)
-	}
+	}()
 
 	// Remove the request from the map
 	delete(rc.cancellations, requestID)
@@ -85,14 +90,14 @@ func (rc *RequestCanceller) Deregister(requestID interface{}) {
 // Returns true if the request is cancelled, false otherwise
 func (rc *RequestCanceller) IsCancelled(requestID interface{}) bool {
 	rc.mu.RLock()
-	defer rc.mu.RUnlock()
-
 	cancelCh, exists := rc.cancellations[requestID]
+	rc.mu.RUnlock()
+
 	if !exists {
-		return false
+		return true // If request doesn't exist, consider it cancelled/completed
 	}
 
-	// Check if the channel is closed (cancelled)
+	// Check if the channel is closed (cancelled) with a non-blocking select
 	select {
 	case <-cancelCh:
 		return true // Channel is closed, request is cancelled

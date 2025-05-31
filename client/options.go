@@ -133,45 +133,6 @@ func WithProtocolNegotiation(enabled bool) Option {
 	}
 }
 
-// WithSamplingOptimizations enables sampling optimizations for the client.
-func WithSamplingOptimizations(opts *SamplingOptimizationOptions) Option {
-	if opts == nil {
-		opts = DefaultSamplingOptimizationOptions()
-	}
-
-	return func(c *clientImpl) {
-		// Create optimization components
-		cache := NewSamplingCache(opts.CacheCapacity, opts.CacheTTL)
-
-		// Configure size analyzer
-		sizeAnalyzer := NewContentSizeAnalyzer()
-		if opts.MaxTextBytes > 0 {
-			sizeAnalyzer.MaxTextBytes = opts.MaxTextBytes
-		}
-		if opts.MaxImageBytes > 0 {
-			sizeAnalyzer.MaxImageBytes = opts.MaxImageBytes
-		}
-		if opts.MaxAudioBytes > 0 {
-			sizeAnalyzer.MaxAudioBytes = opts.MaxAudioBytes
-		}
-
-		// Create metrics tracker
-		metrics := NewSamplingPerformanceMetrics()
-
-		// Store these components for access in other methods
-		c.samplingCache = cache
-		c.sizeAnalyzer = sizeAnalyzer
-		c.samplingMetrics = metrics
-
-		// Register an optimized sampling handler wrapper if there's already a base handler
-		if c.samplingHandler != nil {
-			baseHandler := c.samplingHandler
-			c.samplingHandler = wrapSamplingHandlerWithOptimizations(
-				baseHandler, cache, sizeAnalyzer, metrics, opts.LogWarnings, c.Version())
-		}
-	}
-}
-
 // WithServerConfig loads server configurations from a file and connects to a specific named server.
 // This is used to integrate with the server registry system to automatically manage server processes.
 // If the server requires starting a new process, it will be launched and managed by the registry.

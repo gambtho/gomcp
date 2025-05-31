@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/localrivet/gomcp/events"
 )
 
 // InvalidParametersError represents an error with invalid parameters
@@ -68,15 +71,13 @@ type PromptContent struct {
 // PromptTemplate represents a template for a prompt with a role and content.
 // Templates can contain variables in the format {{variable}} which are
 // substituted when the prompt is rendered.
+// Only "user" and "assistant" roles are supported per MCP specification.
 type PromptTemplate struct {
-	// Role defines who is speaking in this template (user, assistant)
+	// Role defines who is speaking in this template ("user" or "assistant")
 	Role string
 
 	// Content contains the template text with variables in {{variable}} format
 	Content string
-
-	// Variables holds the variable names extracted from the Content
-	Variables []string
 }
 
 // PromptArgument represents an argument for a prompt.
@@ -125,8 +126,8 @@ func Assistant(content string) PromptTemplate {
 // The function returns the server instance to allow for method chaining.
 // The name parameter is used as the identifier for the prompt.
 // The description parameter explains what the prompt does.
-// The templates parameter is a list of prompt templates that make up the prompt.
-func (s *serverImpl) Prompt(name string, description string, templates ...interface{}) Server {
+// The templates parameter contains one or more PromptTemplate instances.
+func (s *serverImpl) Prompt(name string, description string, templates ...PromptTemplate) Server {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -135,25 +136,14 @@ func (s *serverImpl) Prompt(name string, description string, templates ...interf
 		return s
 	}
 
-	var promptTemplates []PromptTemplate
-	for _, template := range templates {
-		// Convert to proper template type based on type
-		switch t := template.(type) {
-		case PromptTemplate:
-			// Already a PromptTemplate
-			promptTemplates = append(promptTemplates, t)
-		case string:
-			// String is treated as a user prompt
-			promptTemplates = append(promptTemplates, User(t))
-		default:
-			// Try to convert to JSON string
-			if jsonStr, err := json.Marshal(t); err == nil {
-				promptTemplates = append(promptTemplates, User(string(jsonStr)))
-			} else {
-				s.logger.Warn("failed to convert template to prompt", "error", err)
-			}
-		}
+	if len(templates) == 0 {
+		s.logger.Error("at least one template must be provided")
+		return s
 	}
+
+	// Templates are already PromptTemplate instances, no conversion needed
+	promptTemplates := make([]PromptTemplate, len(templates))
+	copy(promptTemplates, templates)
 
 	// Extract variables from templates for argument extraction
 	arguments := extractArguments(promptTemplates)
@@ -383,6 +373,28 @@ func (s *serverImpl) ProcessPromptRequest(ctx *Context) (interface{}, error) {
 			},
 		})
 	}
+
+	// Emit prompt executed event
+	type PromptExecutedEvent struct {
+		Operation  string         `json:"operation"`
+		PromptName string         `json:"promptName"`
+		Arguments  map[string]any `json:"arguments"`
+		ExecutedAt time.Time      `json:"executedAt"`
+		Success    bool           `json:"success"`
+		Templates  int            `json:"templateCount"`
+		Metadata   map[string]any `json:"metadata,omitempty"`
+	}
+
+	go func() {
+		events.Publish[PromptExecutedEvent](s.events, events.TopicPromptExecuted, PromptExecutedEvent{
+			Operation:  "prompts/get",
+			PromptName: promptName,
+			Arguments:  args,
+			ExecutedAt: time.Now(),
+			Success:    true,
+			Templates:  len(renderedTemplates),
+		})
+	}()
 
 	// Return the rendered prompt with description
 	return map[string]interface{}{

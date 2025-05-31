@@ -36,9 +36,9 @@ func ResourceRequest(path string) map[string]interface{} {
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      2,
-		"method":  "resource/get",
+		"method":  "resources/read",
 		"params": map[string]interface{}{
-			"path": path,
+			"uri": path,
 		},
 	}
 }
@@ -48,9 +48,9 @@ func ResourceRequestWithID(id interface{}, path string) map[string]interface{} {
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      id,
-		"method":  "resource/get",
+		"method":  "resources/read",
 		"params": map[string]interface{}{
-			"path": path,
+			"uri": path,
 		},
 	}
 }
@@ -58,7 +58,7 @@ func ResourceRequestWithID(id interface{}, path string) map[string]interface{} {
 // ResourceRequestWithOptions generates a resource request with additional options
 func ResourceRequestWithOptions(id interface{}, path string, options map[string]interface{}) map[string]interface{} {
 	params := map[string]interface{}{
-		"path": path,
+		"uri": path,
 	}
 
 	// Add additional options
@@ -69,7 +69,7 @@ func ResourceRequestWithOptions(id interface{}, path string, options map[string]
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      id,
-		"method":  "resource/get",
+		"method":  "resources/read",
 		"params":  params,
 	}
 }
@@ -79,10 +79,10 @@ func PromptRequest(name string, variables map[string]interface{}) map[string]int
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      3,
-		"method":  "prompt/get",
+		"method":  "prompts/get",
 		"params": map[string]interface{}{
 			"name":      name,
-			"variables": variables,
+			"arguments": variables,
 		},
 	}
 }
@@ -92,10 +92,10 @@ func PromptRequestWithID(id interface{}, name string, variables map[string]inter
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      id,
-		"method":  "prompt/get",
+		"method":  "prompts/get",
 		"params": map[string]interface{}{
 			"name":      name,
-			"variables": variables,
+			"arguments": variables,
 		},
 	}
 }
@@ -125,7 +125,7 @@ func RootAddRequest(path, name string) map[string]interface{} {
 		"id":      5,
 		"method":  "roots/add",
 		"params": map[string]interface{}{
-			"path": path,
+			"uri":  path,
 			"name": name,
 		},
 	}
@@ -138,7 +138,7 @@ func RootAddRequestWithID(id interface{}, path, name string) map[string]interfac
 		"id":      id,
 		"method":  "roots/add",
 		"params": map[string]interface{}{
-			"path": path,
+			"uri":  path,
 			"name": name,
 		},
 	}
@@ -151,7 +151,7 @@ func RootRemoveRequest(path string) map[string]interface{} {
 		"id":      6,
 		"method":  "roots/remove",
 		"params": map[string]interface{}{
-			"path": path,
+			"uri": path,
 		},
 	}
 }
@@ -163,7 +163,7 @@ func RootRemoveRequestWithID(id interface{}, path string) map[string]interface{}
 		"id":      id,
 		"method":  "roots/remove",
 		"params": map[string]interface{}{
-			"path": path,
+			"uri": path,
 		},
 	}
 }

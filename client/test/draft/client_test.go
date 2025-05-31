@@ -242,14 +242,14 @@ func TestGetResource_Draft(t *testing.T) {
 		t.Fatalf("Expected params in sent request, got %v", sentRequest)
 	}
 
-	path, ok := params["path"].(string)
+	path, ok := params["uri"].(string)
 	if !ok || path != "/test/resource" {
-		t.Errorf("Expected path parameter to be /test/resource, got %v", params)
+		t.Errorf("Expected uri parameter to be /test/resource, got %v", params)
 	}
 
 	method, ok := sentRequest["method"].(string)
-	if !ok || method != "resource/get" {
-		t.Errorf("Expected method to be resource/get, got %v", sentRequest)
+	if !ok || method != "resources/read" {
+		t.Errorf("Expected method to be resources/read, got %v", sentRequest)
 	}
 }
 
@@ -385,9 +385,9 @@ func TestGetPrompt_Draft(t *testing.T) {
 		t.Errorf("Expected name parameter to be test-prompt, got %v", params)
 	}
 
-	variables, ok := params["variables"].(map[string]interface{})
+	variables, ok := params["arguments"].(map[string]interface{})
 	if !ok {
-		t.Errorf("Expected variables parameter, got %v", params)
+		t.Errorf("Expected arguments parameter, got %v", params)
 	}
 
 	if variables["name"] != "World" || variables["result"] != float64(42) {
@@ -395,8 +395,8 @@ func TestGetPrompt_Draft(t *testing.T) {
 	}
 
 	method, ok := sentRequest["method"].(string)
-	if !ok || method != "prompt/get" {
-		t.Errorf("Expected method to be prompt/get, got %v", sentRequest)
+	if !ok || method != "prompts/get" {
+		t.Errorf("Expected method to be prompts/get, got %v", sentRequest)
 	}
 }
 
@@ -418,9 +418,14 @@ func TestRoots_Draft(t *testing.T) {
 		t.Fatalf("AddRoot failed: %v", err)
 	}
 
-	// Verify the add request format
+	// Verify the add request format by looking for the roots/add request specifically
+	addRequests := mockTransport.GetRequestsByMethod("roots/add")
+	if len(addRequests) != 1 {
+		t.Fatalf("Expected 1 roots/add request, got %d", len(addRequests))
+	}
+
 	var addRequest map[string]interface{}
-	if err := json.Unmarshal(mockTransport.LastSentMessage, &addRequest); err != nil {
+	if err := json.Unmarshal(addRequests[0].Message, &addRequest); err != nil {
 		t.Fatalf("Failed to parse add request: %v", err)
 	}
 
@@ -490,9 +495,14 @@ func TestRoots_Draft(t *testing.T) {
 		t.Fatalf("RemoveRoot failed: %v", err)
 	}
 
-	// Verify the remove request format
+	// Verify the remove request format by looking for the roots/remove request specifically
+	removeRequests := mockTransport.GetRequestsByMethod("roots/remove")
+	if len(removeRequests) != 1 {
+		t.Fatalf("Expected 1 roots/remove request, got %d", len(removeRequests))
+	}
+
 	var removeRequest map[string]interface{}
-	if err := json.Unmarshal(mockTransport.LastSentMessage, &removeRequest); err != nil {
+	if err := json.Unmarshal(removeRequests[0].Message, &removeRequest); err != nil {
 		t.Fatalf("Failed to parse remove request: %v", err)
 	}
 

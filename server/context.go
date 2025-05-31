@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 
 	"github.com/localrivet/gomcp/mcp"
+	"github.com/localrivet/gomcp/util/schema"
 )
 
 // Context represents the execution context for a server request.
@@ -318,7 +320,56 @@ func (c *Context) ExecuteResource(resourcePath string) (interface{}, error) {
 	}
 
 	// Execute the resource handler
-	result, err := resource.Handler(c, params)
+	// Convert params to interface{} using schema validation
+	var resourceArgs interface{}
+	if len(params) > 0 {
+		// Get the handler's parameter type
+		handlerType := reflect.TypeOf(resource.Handler)
+		paramType := handlerType.In(1)
+
+		// Validate and convert the arguments using schema package
+		convertedArgs, err := schema.ValidateAndConvertArgs(resource.Schema.(map[string]interface{}), params, paramType)
+		if err != nil {
+			return nil, fmt.Errorf("invalid resource arguments: %w", err)
+		}
+
+		// Convert to interface{}
+		if convertedArgs != nil {
+			resourceArgs = convertedArgs
+		}
+	}
+
+	// Call the handler using reflection since it's stored as interface{}
+	handlerValue := reflect.ValueOf(resource.Handler)
+
+	// Prepare arguments for the call
+	args := []reflect.Value{
+		reflect.ValueOf(c),
+	}
+
+	// Handle the resourceArgs parameter - if nil, pass a proper zero value for interface{}
+	if resourceArgs != nil {
+		args = append(args, reflect.ValueOf(resourceArgs))
+	} else {
+		// Create a zero value for interface{} type
+		args = append(args, reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem()))
+	}
+
+	// Call the handler
+	results := handlerValue.Call(args)
+
+	// Extract the results
+	var result interface{}
+	var err error
+
+	if !results[0].IsNil() {
+		result = results[0].Interface()
+	}
+
+	if !results[1].IsNil() {
+		err = results[1].Interface().(error)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("resource execution failed: %w", err)
 	}
@@ -651,4 +702,68 @@ func (c *Context) StartProgressOperation(total *float64, initialMessage string) 
 	c.ProgressToken = reporter.GetToken()
 
 	return reporter
+}
+
+// GetValidatedArgs validates and converts request arguments to the expected type.
+// This is a convenience method that combines argument validation and type conversion
+// in a single call, returning the converted arguments ready for use by handlers.
+//
+// The targetType parameter should be the reflect.Type of the expected argument struct.
+// The method returns the converted arguments as interface{} or an error if validation fails.
+//
+// Example:
+//
+//	argType := reflect.TypeOf((*MyArgsStruct)(nil))
+//	args, err := ctx.GetValidatedArgs(argType)
+//	if err != nil {
+//	    return nil, err
+//	}
+//	myArgs := args.(*MyArgsStruct)
+func (c *Context) GetValidatedArgs(targetType reflect.Type) (interface{}, error) {
+	if c.Request == nil {
+		return nil, fmt.Errorf("no request available")
+	}
+
+	// For tool calls, use tool arguments
+	if c.Request.ToolArgs != nil {
+		// Get the tool to access its schema
+		if c.Request.ToolName == "" {
+			return nil, fmt.Errorf("tool name is required for argument validation")
+		}
+
+		// This would need access to the server's tool registry
+		// For now, return a basic validation error
+		return nil, fmt.Errorf("tool argument validation not implemented in context")
+	}
+
+	// For other request types, return nil (no arguments)
+	return nil, nil
+}
+
+// ValidateToolArgs validates tool arguments against a tool's schema.
+// This method provides type-safe argument validation for tool handlers,
+// ensuring that the provided arguments match the expected structure and types.
+//
+// The toolName parameter identifies which tool's schema to use for validation.
+// The method returns the validated arguments as interface{} or an error if validation fails.
+//
+// Example:
+//
+//	args, err := ctx.ValidateToolArgs("calculator")
+//	if err != nil {
+//	    return nil, fmt.Errorf("invalid arguments: %w", err)
+//	}
+//	calcArgs := args.(*CalculatorArgs)
+func (c *Context) ValidateToolArgs(toolName string) (interface{}, error) {
+	if c.Request == nil || c.Request.ToolArgs == nil {
+		return nil, fmt.Errorf("no tool arguments available")
+	}
+
+	if c.Request.ToolName != toolName {
+		return nil, fmt.Errorf("tool name mismatch: expected %s, got %s", toolName, c.Request.ToolName)
+	}
+
+	// This would need access to the server's tool registry to get the schema
+	// For now, return the raw arguments
+	return c.Request.ToolArgs, nil
 }

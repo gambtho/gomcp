@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/localrivet/gomcp/events"
 	"github.com/localrivet/gomcp/mcp"
 	"github.com/localrivet/gomcp/transport"
 	"github.com/localrivet/gomcp/transport/mqtt"
@@ -37,78 +38,93 @@ type Server interface {
 	//  }
 	Run() error
 
+	// Shutdown gracefully shuts down the server.
+	//
+	// This method stops accepting new connections and gracefully terminates
+	// existing connections. It returns any error encountered during shutdown.
+	//
+	// Example:
+	//  if err := server.Shutdown(); err != nil {
+	//      log.Printf("Server shutdown error: %v", err)
+	//  }
+	Shutdown() error
+
 	// Tool registers a tool with the server.
 	//
 	// The name parameter is the unique identifier for the tool. The description
-	// parameter provides human-readable documentation. The handler parameter is
-	// a function that implements the tool's logic.
+	// parameter provides human-readable documentation. The handler parameter must
+	// be a function with the signature:
+	//   func(ctx *Context, args *StructType) (interface{}, error)
 	//
-	// Tool handlers can have one of the following signatures:
-	//  func(ctx *Context) (interface{}, error)
-	//  func(ctx *Context, args T) (interface{}, error)
+	// Where StructType is a pointer to a struct and can be nil. The schema is automatically
+	// extracted from the struct type using reflection and JSON tags.
 	//
-	// Where T is a struct type that defines the expected arguments for the tool.
-	//
-	// Example:
-	//  server.Tool("echo", "Echo the input text", func(ctx *Context, args struct {
-	//      Text string `json:"text" required:"true" description:"Text to echo"`
-	//  }) (string, error) {
-	//      return args.Text, nil
-	//  })
-	Tool(name, description string, handler interface{}) Server
-
-	// WithSchema adds a JSON Schema to a registered tool.
-	//
-	// The schema parameter must be a valid JSON Schema object that describes
-	// the expected arguments for the tool. This schema is used for client-side
-	// validation and documentation.
+	// Optional annotations can be provided as additional map parameters to add
+	// metadata that can be used by clients.
 	//
 	// Example:
-	//  server.WithSchema("echo", map[string]interface{}{
-	//      "type": "object",
-	//      "properties": map[string]interface{}{
-	//          "text": map[string]interface{}{
-	//              "type": "string",
-	//              "description": "Text to echo",
-	//          },
-	//      },
-	//      "required": []string{"text"},
+	//  server.Tool("calculator", "Perform calculations", func(ctx *Context, args struct{
+	//		Operation string `json:"operation"`
+	//		A float64 `json:"a"`
+	//		B float64 `json:"b"`
+	//	}) (interface{}, error) {
+	//      // Implementation here - args.Operation, args.A, args.B are fully typed
+	//      return result, nil
 	//  })
-	WithSchema(toolName string, schema interface{}) Server
-
-	// WithAnnotations adds annotations to a tool.
-	//
-	// Annotations provide additional metadata that can be used by clients.
-	//
-	// Example:
-	//  server.WithAnnotations("echo", map[string]interface{}{
-	//      "icon": "microphone",
-	//      "category": "utility",
-	//  })
-	WithAnnotations(toolName string, annotations map[string]interface{}) Server
+	Tool(name, description string, handler interface{}, annotations ...map[string]interface{}) Server
 
 	// Resource registers a resource with the server.
 	//
 	// The pattern parameter is a URL path pattern that matches requests to this
 	// resource. The description parameter provides human-readable documentation.
-	// The handler parameter is a function that implements the resource's logic.
+	// The handler parameter must be a function with signature:
+	//   func(ctx *Context, args *StructType) (interface{}, error)
+	//
+	// Where StructType is a pointer to a struct and can be nil. The schema is automatically
+	// extracted from the struct type using reflection and JSON tags.
+	//
+	// Path parameters are extracted from URI templates (e.g., /users/{id}) and
+	// JSON parameters come from request body. Use struct tags to map them:
+	//   - `path:"name"` for URI template parameters
+	//   - `json:"name"` for JSON body parameters
 	//
 	// Example:
-	//  server.Resource("/users/:id", "Get user information", func(ctx *Context) (interface{}, error) {
-	//      userId := ctx.Params["id"]
-	//      return getUserById(userId)
+	//  server.Resource("/users/{id}", "Update user name", func(ctx *Context, args struct{
+	//		ID   string `path:"id"`
+	//		Name string `json:"name"`
+	//	}) (interface{}, error) {
+	//      // args.ID contains the path parameter from /users/{id}
+	//      // args.Name contains the JSON body parameter
+	//      user, err := getUserById(args.ID)
+	//      if err != nil {
+	//          return nil, err
+	//      }
+	//      user.Name = args.Name
+	//      user, err = updateUser(user)
+	//      if err != nil {
+	//          return nil, err
+	//      }
+	//      return user, nil
 	//  })
-	Resource(path string, description string, handler interface{}) Server
+	Resource(path, description string, handler interface{}) Server
 
 	// Prompt registers a prompt template with the server.
 	//
 	// The name parameter is the unique identifier for the prompt. The description
-	// parameter provides human-readable documentation. The template parameter is
-	// a string with placeholders for variables.
+	// parameter provides human-readable documentation. The templates parameter
+	// contains one or more prompt templates created using User() or Assistant().
+	//
+	// At least one template must be provided. Use server.User() and server.Assistant()
+	// helper functions to create templates with the appropriate roles.
 	//
 	// Example:
-	//  server.Prompt("greeting", "A friendly greeting", "Hello, {{name}}! How are you today?")
-	Prompt(name, description string, template ...interface{}) Server
+	//  server.Prompt("greeting", "A friendly greeting",
+	//      server.User("Hello, {{name}}! How are you today?"))
+	//
+	//  server.Prompt("conversation", "A multi-turn conversation",
+	//      server.User("Please help me with {{task}}."),
+	//      server.Assistant("I'll be happy to help you with that."))
+	Prompt(name, description string, templates ...PromptTemplate) Server
 
 	// Root sets the allowed root paths.
 	//
@@ -140,6 +156,29 @@ type Server interface {
 	//	    "user_id", userID,
 	//	)
 	Logger() *slog.Logger
+
+	// Events returns the server's event system.
+	//
+	// This method provides access to the server's event system for subscribing to
+	// server lifecycle events. External consumers can hook into events like server
+	// initialization, client connections, tool executions, and more.
+	//
+	// Example:
+	//
+	//	// Subscribe to server initialization events
+	//	events.Subscribe[MyServerEvent](server.Events(), events.TopicServerInitialized,
+	//	    func(ctx context.Context, evt MyServerEvent) error {
+	//	        log.Printf("Server %s initialized with %d tools", evt.Name, evt.ToolCount)
+	//	        return nil
+	//	    })
+	//
+	//	// Subscribe to client connection events
+	//	events.Subscribe[MyClientEvent](server.Events(), events.TopicClientConnected,
+	//	    func(ctx context.Context, evt MyClientEvent, conn net.Conn) error {
+	//	        log.Printf("Client connected from %s", conn.RemoteAddr())
+	//	        return nil
+	//	    })
+	Events() *events.Subject
 
 	// ListTools returns a list of all registered tools.
 	//
@@ -373,6 +412,9 @@ type serverImpl struct {
 
 	// toolsChanged indicates if tools have been modified since the last notification
 	toolsChanged bool
+
+	// events provides the event system for server lifecycle events
+	events *events.Subject
 }
 
 // GetName returns the server's name.
@@ -503,10 +545,17 @@ func NewServer(name string, options ...Option) Server {
 	s.samplingConfig = NewDefaultSamplingConfig()
 	s.samplingController = NewSamplingController(s.samplingConfig, s.logger)
 
-	// Apply all options
+	// Apply all options first to get the final logger
 	for _, option := range options {
 		option(s)
 	}
+
+	// Initialize events system with the server's logger
+	s.events = events.NewSubject(
+		events.WithLogger(s.logger),
+		events.WithBufferSize(1024),
+		events.WithReplay(100),
+	)
 
 	return s
 }
@@ -532,6 +581,25 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+// WithProtocolVersion sets a specific protocol version for the server to use.
+// This bypasses the normal negotiation process and forces the server to use this version.
+// This is useful for testing or when you need to enforce a specific protocol version.
+//
+// Example:
+//
+//	server := server.NewServer("my-service",
+//	    server.WithProtocolVersion("2025-03-26"),
+//	)
+func WithProtocolVersion(version string) Option {
+	return func(s *serverImpl) {
+		s.protocolVersion = version
+		// Update the default session to use this protocol version
+		if s.defaultSession != nil {
+			s.defaultSession.ClientInfo.ProtocolVersion = version
+		}
+	}
+}
+
 // Logger returns the server's logger.
 //
 // This method provides access to the server's configured logger for custom logging needs.
@@ -546,6 +614,11 @@ func WithLogger(logger *slog.Logger) Option {
 //	)
 func (s *serverImpl) Logger() *slog.Logger {
 	return s.logger
+}
+
+// Events returns the server's event system.
+func (s *serverImpl) Events() *events.Subject {
+	return s.events
 }
 
 // ProcessInitialize processes an initialize request.
@@ -570,6 +643,13 @@ func (s *serverImpl) ProcessInitialize(ctx *Context) (interface{}, error) {
 
 	// Store the validated protocol version without locking
 	s.protocolVersion = protocolVersion
+
+	// Update the transport with the negotiated protocol version
+	s.mu.RLock()
+	if s.transport != nil {
+		s.transport.SetProtocolVersion(protocolVersion)
+	}
+	s.mu.RUnlock()
 
 	// Determine sampling capabilities based on protocol version
 	samplingCaps := DetectClientCapabilities(protocolVersion)
@@ -600,106 +680,65 @@ func (s *serverImpl) ProcessInitialize(ctx *Context) (interface{}, error) {
 		"samplingSupported", samplingCaps.Supported,
 		"audioSupport", samplingCaps.AudioSupport)
 
-	// Prepare the sampling capabilities for the response based on protocol version
-	samplingCapabilities := map[string]interface{}{
-		"supported": true,
-		"contentTypes": map[string]bool{
-			"text":  true,
-			"image": samplingCaps.ImageSupport,
-		},
+	// Build server capabilities according to MCP specification
+	// Only declare capability flags, not actual data
+	capabilities := map[string]interface{}{
+		"logging": map[string]interface{}{},
 	}
 
-	// Audio is only supported in draft and 2025-03-26 versions
-	if protocolVersion == "draft" || protocolVersion == "2025-03-26" {
-		samplingCapabilities["contentTypes"].(map[string]bool)["audio"] = samplingCaps.AudioSupport
+	// Add prompts capability if we have any registered
+	if len(s.prompts) > 0 {
+		capabilities["prompts"] = map[string]interface{}{
+			"listChanged": true,
+		}
 	}
 
-	// Get the list of tools
-	toolList := make([]map[string]interface{}, 0, len(s.tools))
-	for _, tool := range s.tools {
-		toolInfo := map[string]interface{}{
-			"name":        tool.Name,
-			"description": tool.Description,
-			"inputSchema": tool.Schema,
+	// Add resources capability if we have any registered
+	if len(s.resources) > 0 {
+		capabilities["resources"] = map[string]interface{}{
+			"subscribe":   true,
+			"listChanged": true,
 		}
-		// Only include annotations if they exist
-		if len(tool.Annotations) > 0 {
-			toolInfo["annotations"] = tool.Annotations
-		}
-		toolList = append(toolList, toolInfo)
 	}
 
-	// Get the list of resources
-	resourceList := make([]map[string]interface{}, 0, len(s.resources))
-	for path, resource := range s.resources {
-		// Use the full path as the name if no other name is available
-		name := resource.Path
-		if path != "" {
-			name = path
+	// Add tools capability if we have any registered
+	if len(s.tools) > 0 {
+		capabilities["tools"] = map[string]interface{}{
+			"listChanged": true,
 		}
-
-		// Extract MIME type if available from schema or set a default
-		mimeType := "application/octet-stream" // Default MIME type
-		if schemaMap, ok := resource.Schema.(map[string]interface{}); ok {
-			if mt, ok := schemaMap["mimeType"].(string); ok && mt != "" {
-				mimeType = mt
-			}
-		}
-
-		resourceInfo := map[string]interface{}{
-			"uri":         resource.Path,
-			"name":        name,
-			"description": resource.Description,
-			"mimeType":    mimeType,
-		}
-
-		// Add isTemplate if this is a template resource
-		if resource.IsTemplate {
-			resourceInfo["isTemplate"] = true
-		}
-
-		resourceList = append(resourceList, resourceInfo)
 	}
 
-	// Get the list of prompts
-	promptList := make([]map[string]interface{}, 0, len(s.prompts))
-	for _, prompt := range s.prompts {
-		promptInfo := map[string]interface{}{
-			"name":        prompt.Name,
-			"description": prompt.Description,
-		}
-		// Include arguments if available
-		if len(prompt.Arguments) > 0 {
-			promptInfo["arguments"] = prompt.Arguments
-		}
-		promptList = append(promptList, promptInfo)
-	}
+	// Emit client connected event
+	go func() {
+		events.Publish[events.ClientConnectedEvent](s.events, events.TopicClientConnected, events.ClientConnectedEvent{
+			SessionID:       string(session.ID),
+			ProtocolVersion: session.ProtocolVersion,
+			ConnectedAt:     session.Created,
+			ClientInfo: events.ClientInfo{
+				Name:    "Unknown Client",
+				Version: "Unknown",
+			},
+			Capabilities: capabilities,
+		})
+	}()
 
-	// Return response with the validated protocol version and complete capabilities
-	return map[string]interface{}{
+	// Build the response according to MCP specification
+	response := map[string]interface{}{
 		"protocolVersion": protocolVersion,
-		"capabilities": map[string]interface{}{
-			"logging": map[string]interface{}{},
-			"prompts": map[string]interface{}{
-				"listChanged": true,
-				"prompts":     promptList,
-			},
-			"resources": map[string]interface{}{
-				"subscribe":   true,
-				"listChanged": true,
-				"resources":   resourceList,
-			},
-			"tools": map[string]interface{}{
-				"listChanged": true,
-				"tools":       toolList,
-			},
-			"sampling": samplingCapabilities,
-		},
+		"capabilities":    capabilities,
 		"serverInfo": map[string]interface{}{
 			"name":    s.name,
 			"version": "1.0.0",
 		},
-	}, nil
+	}
+
+	// Add optional instructions field if needed (available in 2025-03-26 and draft)
+	if protocolVersion == "2025-03-26" || protocolVersion == "draft" {
+		// Could add instructions here if needed
+		// response["instructions"] = "Optional instructions for the client"
+	}
+
+	return response, nil
 }
 
 // ProcessShutdown processes a shutdown request.
@@ -710,9 +749,25 @@ func (s *serverImpl) ProcessInitialize(ctx *Context) (interface{}, error) {
 // The ctx parameter contains the shutdown request. The method returns a simple
 // response indicating whether the shutdown was initiated successfully.
 func (s *serverImpl) ProcessShutdown(ctx *Context) (interface{}, error) {
+	// Emit server shutdown event
+	go func() {
+		events.Publish[events.ServerShutdownEvent](s.events, events.TopicServerShutdown, events.ServerShutdownEvent{
+			ServerName:   s.name,
+			ShutdownAt:   time.Now(),
+			GracefulExit: true,
+			Reason:       "client_requested",
+		})
+	}()
+
 	// TODO: Implement proper shutdown handling
 	go func() {
 		s.logger.Info("shutdown requested, will exit soon")
+
+		// Clean up events system
+		if s.events != nil {
+			events.Complete(s.events)
+		}
+
 		// Give time for the response to be sent before actually shutting down
 		time.Sleep(100 * time.Millisecond)
 		// TODO: Implement clean shutdown
@@ -780,6 +835,27 @@ func (s *serverImpl) Run() error {
 	select {}
 }
 
+// Shutdown gracefully shuts down the server
+func (s *serverImpl) Shutdown() error {
+	s.logger.Info("shutting down server", "name", s.name)
+
+	// Stop the underlying transport
+	if s.transport != nil {
+		if err := s.transport.Stop(); err != nil {
+			s.logger.Error("error stopping transport", "error", err)
+			return err
+		}
+	}
+
+	// Clean up events system
+	if s.events != nil {
+		events.Complete(s.events)
+	}
+
+	s.logger.Info("server shutdown complete", "name", s.name)
+	return nil
+}
+
 // GetServer returns the underlying server implementation
 // This is primarily for internal use and testing.
 func (s *serverImpl) GetServer() *serverImpl {
@@ -839,6 +915,22 @@ func (s *serverImpl) handleInitializedNotification() {
 
 	s.logger.Debug("client initialized, processing pending notifications",
 		"count", len(pendingNotifications))
+
+	// Publish server initialized event
+	evt := events.ServerInitializedEvent{
+		ServerName:      s.name,
+		ProtocolVersion: s.protocolVersion,
+		ToolCount:       len(s.tools),
+		ResourceCount:   len(s.resources),
+		PromptCount:     len(s.prompts),
+		InitializedAt:   time.Now(),
+		Metadata:        make(map[string]any),
+	}
+
+	// Publish the event (ignore errors to avoid breaking server startup)
+	if err := events.Publish[events.ServerInitializedEvent](s.events, events.TopicServerInitialized, evt); err != nil {
+		s.logger.Debug("failed to publish server initialized event", "error", err)
+	}
 
 	// Send any pending notifications
 	for _, notification := range pendingNotifications {

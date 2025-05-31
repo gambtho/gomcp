@@ -3,6 +3,8 @@ package server
 import (
 	"sync"
 	"time"
+
+	"github.com/localrivet/gomcp/events"
 )
 
 // SessionID is a unique identifier for a client session.
@@ -127,20 +129,35 @@ func (sm *SessionManager) UpdateSession(id SessionID, update func(*ClientSession
 //
 // Parameters:
 //   - id: The unique identifier of the session to close
+//   - eventSystem: The event system to publish disconnection events to (can be nil)
 //
 // Returns:
+//   - The closed session if found, nil otherwise
 //   - A boolean indicating whether the session was found and removed
-func (sm *SessionManager) CloseSession(id SessionID) bool {
+func (sm *SessionManager) CloseSession(id SessionID, eventSystem *events.Subject) (*ClientSession, bool) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	_, exists := sm.sessions[id]
+	session, exists := sm.sessions[id]
 	if !exists {
-		return false
+		return nil, false
 	}
 
 	delete(sm.sessions, id)
-	return true
+
+	// Emit client disconnected event if event system is provided
+	if eventSystem != nil && session != nil {
+		go func() {
+			events.Publish[events.ClientDisconnectedEvent](eventSystem, events.TopicClientDisconnected, events.ClientDisconnectedEvent{
+				SessionID:       string(session.ID),
+				ProtocolVersion: session.ProtocolVersion,
+				ConnectedAt:     session.Created.Format(time.RFC3339),
+				DisconnectedAt:  time.Now().Format(time.RFC3339),
+			})
+		}()
+	}
+
+	return session, true
 }
 
 // DetectClientCapabilities infers client capabilities from the protocol version.

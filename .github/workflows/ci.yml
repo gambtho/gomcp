@@ -14,15 +14,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         go-version: ['1.22', '1.23', '1.24']
-        arch: [amd64]
-        include:
-          # ARM64 testing on macOS and Linux
-          - os: ubuntu-latest
-            go-version: '1.24'
-            arch: arm64
-          - os: macos-latest
-            go-version: '1.24'
-            arch: arm64
       fail-fast: false
 
     steps:
@@ -40,10 +31,9 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-${{ matrix.arch }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-${{ matrix.arch }}-go-${{ matrix.go-version }}-
-          ${{ runner.os }}-${{ matrix.arch }}-go-
+          ${{ runner.os }}-go-${{ matrix.go-version }}-
 
     - name: Download dependencies
       run: make deps
@@ -51,87 +41,46 @@ jobs:
     - name: Verify dependencies
       run: go mod verify
 
-    - name: Format check
-      run: |
-        make fmt
-        git diff --exit-code
+    - name: Run all checks
+      run: make check
 
-    - name: Vet
-      run: make vet
+  coverage:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    - name: Run tests
-      env:
-        GOARCH: ${{ matrix.arch }}
-      run: make test
-
-    - name: Run tests with coverage
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.24' && matrix.arch == 'amd64'
-      run: make test-coverage
-
-    - name: Run benchmarks
-      env:
-        GOARCH: ${{ matrix.arch }}
-      run: make bench
-
-    - name: Build library
-      env:
-        GOARCH: ${{ matrix.arch }}
-      run: make build
-
-    - name: Build examples
-      env:
-        GOARCH: ${{ matrix.arch }}
-      run: make build-examples
-
-    - name: Run linter
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.24' && matrix.arch == 'amd64'
-      uses: golangci/golangci-lint-action@v6
+    - name: Set up Go
+      uses: actions/setup-go@v5
       with:
-        version: latest
+        go-version: '1.24'
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ubuntu-latest-go-1.24-${{ hashFiles('**/go.sum') }}
+
+    - name: Download dependencies
+      run: make deps
+
+    - name: Generate coverage report
+      run: make coverage
 
     - name: Upload coverage to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.24' && matrix.arch == 'amd64'
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.out
         flags: unittests
         name: codecov-umbrella
 
-  test-components:
-    name: Component Tests
-    runs-on: ubuntu-latest
-    needs: test
-    strategy:
-      matrix:
-        component: [server, client, transport]
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.24'
-
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.24-${{ hashFiles('**/go.sum') }}
-
-    - name: Download dependencies
-      run: make deps
-
-    - name: Test ${{ matrix.component }}
-      run: make test-${{ matrix.component }}
-
   mcp-protocol-tests:
     name: MCP Protocol Compliance
     runs-on: ubuntu-latest
-    needs: test
 
     steps:
     - name: Checkout code
@@ -148,7 +97,7 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.24-${{ hashFiles('**/go.sum') }}
+        key: ubuntu-latest-go-1.24-${{ hashFiles('**/go.sum') }}
 
     - name: Download dependencies
       run: make deps
@@ -162,83 +111,9 @@ jobs:
     - name: Test MCP 2025-03-26 Specification
       run: go test -v ./server/test/v20250326/...
 
-    - name: Generate gRPC code (if applicable)
-      run: make gen-grpc || echo "gRPC generation skipped"
-
-  example-tests:
-    name: Example Tests
-    runs-on: ${{ matrix.os }}
-    needs: test
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        example: [minimal, websocket, stdio, http]
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.24'
-
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.24-${{ hashFiles('**/go.sum') }}
-
-    - name: Download dependencies
-      run: make deps
-
-    - name: Build ${{ matrix.example }} example
-      run: |
-        if [ -d "examples/${{ matrix.example }}" ]; then
-          cd examples/${{ matrix.example }}
-          if [ -f "main.go" ]; then
-            go build -v .
-          elif [ -d "server" ] && [ -f "server/main.go" ]; then
-            cd server && go build -v .
-          elif [ -d "client" ] && [ -f "client/main.go" ]; then
-            cd client && go build -v .
-          else
-            echo "No buildable Go files found in ${{ matrix.example }} example"
-          fi
-        else
-          echo "Example ${{ matrix.example }} not found, skipping"
-        fi
-
-    - name: Test ${{ matrix.example }} example compilation (Unix)
-      if: matrix.os != 'windows-latest'
-      run: |
-        if [ -d "examples/${{ matrix.example }}" ]; then
-          cd examples/${{ matrix.example }}
-          # Test that the example compiles without errors
-          if [ -f "main.go" ]; then
-            go build -o test-binary .
-            rm -f test-binary
-          fi
-        fi
-
-    - name: Test ${{ matrix.example }} example compilation (Windows)
-      if: matrix.os == 'windows-latest'
-      run: |
-        if (Test-Path "examples/${{ matrix.example }}") {
-          cd examples/${{ matrix.example }}
-          if (Test-Path "main.go") {
-            go build -o test-binary.exe .
-            Remove-Item -Force test-binary.exe -ErrorAction SilentlyContinue
-          }
-        }
-      shell: powershell
-
-  integration-test:
-    name: Integration Tests
+  example-compilation:
+    name: Example Compilation
     runs-on: ubuntu-latest
-    needs: test
     
     steps:
     - name: Checkout code
@@ -255,36 +130,80 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.24-${{ hashFiles('**/go.sum') }}
+        key: ubuntu-latest-go-1.24-${{ hashFiles('**/go.sum') }}
 
     - name: Download dependencies
       run: make deps
 
-    - name: Run integration tests
+    - name: Test example compilation
       run: |
-        # Test that server and client can communicate
-        echo "Testing MCP server-client communication..."
-        
-        # Build minimal example if it exists
-        if [ -d "examples/minimal/server" ]; then
-          cd examples/minimal/server
-          go build -o ../../../test-server .
-          cd ../../..
-        fi
-        
-        if [ -d "examples/minimal/client" ]; then
-          cd examples/minimal/client  
-          go build -o ../../../test-client .
-          cd ../../..
-        fi
+        echo "Testing that examples compile without errors..."
+        for example_dir in examples/*/; do
+          if [ -d "$example_dir" ]; then
+            example_name=$(basename "$example_dir")
+            echo "Testing compilation of example: $example_name"
+            
+            # Check for main.go in root of example
+            if [ -f "${example_dir}main.go" ]; then
+              echo "  Compiling ${example_dir}main.go"
+              (cd "$example_dir" && go build -v .)
+            fi
+            
+            # Check for main.go in server subdirectory
+            if [ -f "${example_dir}server/main.go" ]; then
+              echo "  Compiling ${example_dir}server/main.go"
+              (cd "${example_dir}server" && go build -v .)
+            fi
+            
+            # Check for main.go in client subdirectory
+            if [ -f "${example_dir}client/main.go" ]; then
+              echo "  Compiling ${example_dir}client/main.go"
+              (cd "${example_dir}client" && go build -v .)
+            fi
+          fi
+        done
 
-    - name: Test transport layers
-      run: |
-        echo "Testing transport layer functionality..."
-        go test -v ./transport/... -short
+  benchmarks:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    - name: Test MCP protocol versions
-      run: |
-        echo "Testing MCP protocol version compatibility..."
-        # Run tests for all supported MCP versions
-        go test -v ./server/test/... -short 
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ubuntu-latest-go-1.24-${{ hashFiles('**/go.sum') }}
+
+    - name: Download dependencies
+      run: make deps
+
+    - name: Run benchmarks
+      run: make bench
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: latest 

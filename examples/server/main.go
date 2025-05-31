@@ -166,7 +166,7 @@ func main() {
 
 	// Add a prompt
 	// srv.Prompt("user", "You are a helpful assistant that can answer questions and help with tasks.")
-	// srv.Prompt("user", "Use the calculator tool to perform calculations.")
+	srv.Prompt("user", "Use the calculator tool to perform calculations.")
 
 	// Run server with logging to file
 	if err := srv.Run(); err != nil {

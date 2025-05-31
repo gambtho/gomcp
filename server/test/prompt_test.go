@@ -298,9 +298,9 @@ func TestPromptList(t *testing.T) {
 	s := server.NewServer("test-server")
 
 	// Register some prompts
-	s.Prompt("prompt1", "First prompt", "Template 1")
-	s.Prompt("prompt2", "Second prompt", "Template 2 with {{var}}")
-	s.Prompt("prompt3", "Third prompt", "Template 3")
+	s.Prompt("prompt1", "First prompt", server.User("Template 1"))
+	s.Prompt("prompt2", "Second prompt", server.User("Template 2 with {{var}}"))
+	s.Prompt("prompt3", "Third prompt", server.User("Template 3"))
 
 	// Create a context for testing
 	ctx := &server.Context{

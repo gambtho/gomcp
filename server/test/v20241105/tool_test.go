@@ -50,7 +50,7 @@ func TestToolExecutionV20241105(t *testing.T) {
 	srv := server.NewServer("test-server-2024-11-05")
 
 	// Register a test tool with 2024-11-05 features
-	srv.Tool("test-tool", "A simple test tool for 2024-11-05", func(ctx *server.Context, args interface{}) (interface{}, error) {
+	srv.Tool("echo", "Echo back the input", func(ctx *server.Context, args interface{}) (interface{}, error) {
 		return "This is a 2024-11-05 tool response", nil
 	})
 
@@ -60,7 +60,7 @@ func TestToolExecutionV20241105(t *testing.T) {
 		"id": 1,
 		"method": "tools/call",
 		"params": {
-			"name": "test-tool",
+			"name": "echo",
 			"arguments": {}
 		}
 	}`)
@@ -160,10 +160,10 @@ func TestToolExecutionV20241105(t *testing.T) {
 
 	// Verify tool properties
 	tool := toolListResponse.Result.Tools[0]
-	if tool["name"] != "test-tool" {
-		t.Errorf("Expected tool name to be 'test-tool', got %v", tool["name"])
+	if tool["name"] != "echo" {
+		t.Errorf("Expected tool name to be 'echo', got %v", tool["name"])
 	}
-	if tool["description"] != "A simple test tool for 2024-11-05" {
-		t.Errorf("Expected tool description to be 'A simple test tool for 2024-11-05', got %v", tool["description"])
+	if tool["description"] != "Echo back the input" {
+		t.Errorf("Expected tool description to be 'Echo back the input', got %v", tool["description"])
 	}
 }

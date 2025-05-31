@@ -6,17 +6,14 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
+	"github.com/localrivet/gomcp/events"
 	"github.com/localrivet/gomcp/util/schema"
 )
 
-// ToolHandler is a function that handles tool calls.
-// It receives a context with request information and arguments,
-// and returns a result and any error that occurred.
-type ToolHandler func(ctx *Context, args interface{}) (interface{}, error)
-
 // Tool represents a tool registered with the server.
-// Tools are functions that can be called by clients connected to the server.
+// Tools are functions that clients can call to perform specific operations.
 type Tool struct {
 	// Name is the unique identifier for the tool
 	Name string
@@ -25,7 +22,7 @@ type Tool struct {
 	Description string
 
 	// Handler is the function that executes when the tool is called
-	Handler ToolHandler
+	Handler interface{}
 
 	// Schema defines the expected input format for the tool
 	Schema interface{}
@@ -35,73 +32,253 @@ type Tool struct {
 }
 
 // Tool registers a tool with the server.
-// The function returns the server instance to allow for method chaining.
 // The name parameter is used as the identifier for the tool.
 // The description parameter explains what the tool does.
-// The handler parameter is a function that is called when the tool is invoked.
-func (s *serverImpl) Tool(name string, description string, handler interface{}) Server {
-	toolHandler, ok := convertToToolHandler(handler)
-	if !ok {
-		s.logger.Error("invalid tool handler type", "name", name)
+// The handler parameter must be a function with signature: func(ctx *Context, args *StructType) (interface{}, error)
+// where StructType is a pointer to a struct (nillable).
+// The annotations parameter allows you to add metadata directly during registration.
+func (s *serverImpl) Tool(name, description string, handler interface{}, annotations ...map[string]interface{}) Server {
+	// Validate handler is not nil
+	if handler == nil {
+		s.logger.Error("tool handler cannot be nil", "name", name)
 		return s
 	}
 
-	// Extract schema from the handler
-	schema, err := extractSchema(handler)
+	// Validate that handler is a function and its args parameter is a struct, *struct, or nil
+	handlerType := reflect.TypeOf(handler)
+	if handlerType.Kind() != reflect.Func {
+		s.logger.Error("tool handler must be a function", "name", name)
+		return s
+	}
+
+	// Must have exactly 2 parameters
+	if handlerType.NumIn() != 2 {
+		s.logger.Error("tool handler must have exactly 2 parameters: func(ctx *Context, args StructType) (interface{}, error)", "name", name)
+		return s
+	}
+
+	// Check that args parameter (second parameter) is a struct, *struct, or interface{} (for nil case)
+	argsType := handlerType.In(1)
+	argsKind := argsType.Kind()
+
+	// Allow struct, pointer to struct, or interface{} (for nil case)
+	isValidArgsType := argsKind == reflect.Struct ||
+		(argsKind == reflect.Ptr && argsType.Elem().Kind() == reflect.Struct) ||
+		argsType == reflect.TypeOf((*interface{})(nil)).Elem()
+
+	if !isValidArgsType {
+		s.logger.Error("tool handler args parameter must be a struct, *struct, or interface{} (for nil), got", "name", name, "type", argsType.String())
+		return s
+	}
+
+	// Validate handler signature and extract schema
+	handlerFunc, schema, err := s.validateAndExtractToolHandler(handler)
 	if err != nil {
-		s.logger.Error("failed to extract schema from handler", "name", name, "error", err)
-		// Use a generic schema as fallback
-		schema = map[string]interface{}{
-			"type": "object",
+		s.logger.Error("invalid tool handler", "name", name, "error", err)
+		return s
+	}
+
+	// Merge all annotation maps
+	mergedAnnotations := make(map[string]interface{})
+	for _, annotationMap := range annotations {
+		for k, v := range annotationMap {
+			mergedAnnotations[k] = v
 		}
 	}
 
 	// Use the internal registerTool method to store the tool
-	s.registerTool(name, description, toolHandler, schema)
+	s.registerTool(name, description, handlerFunc, schema, mergedAnnotations)
 	return s
 }
 
-// registerTool registers a tool with the server.
-// It's an internal method used by the Tool method.
-// This method handles validation, duplicate detection, and notifications.
-func (s *serverImpl) registerTool(name, description string, handler ToolHandler, schema map[string]interface{}) *serverImpl {
+// validateAndExtractToolHandler validates a handler function and extracts its schema.
+// The handler must be a function with signature: func(ctx *Context, args *StructType) (interface{}, error)
+// where StructType is a struct type (either by value or pointer) for proper schema generation.
+func (s *serverImpl) validateAndExtractToolHandler(handler interface{}) (interface{}, map[string]interface{}, error) {
+	handlerValue := reflect.ValueOf(handler)
+	handlerType := handlerValue.Type()
+
+	// Must be a function
+	if handlerType.Kind() != reflect.Func {
+		return nil, nil, errors.New("handler must be a function")
+	}
+
+	// Must have exactly 2 parameters and 2 return values
+	if handlerType.NumIn() != 2 || handlerType.NumOut() != 2 {
+		return nil, nil, errors.New("handler must have signature: func(ctx *Context, args StructType) (interface{}, error) where StructType is a struct type")
+	}
+
+	// First parameter must be *Context
+	if handlerType.In(0) != reflect.TypeOf((*Context)(nil)) {
+		return nil, nil, errors.New("first parameter must be *Context")
+	}
+
+	// First return value must be assignable to interface{}
+	if !handlerType.Out(0).AssignableTo(reflect.TypeOf((*interface{})(nil)).Elem()) {
+		return nil, nil, errors.New("first return value must be assignable to interface{}")
+	}
+
+	// Second return value must be error
+	if !handlerType.Out(1).Implements(reflect.TypeOf((*error)(nil)).Elem()) {
+		return nil, nil, errors.New("second return value must be error")
+	}
+
+	// Validate second parameter type - must be a struct or pointer to struct for schema generation
+	argsType := handlerType.In(1)
+
+	// Check if it's interface{} - this is allowed for tools that don't need arguments (nil case)
+	if argsType == reflect.TypeOf((*interface{})(nil)).Elem() {
+		// For interface{} (nil) arguments, create a simple empty schema
+		emptySchema := map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+			"required":   []string{},
+		}
+
+		// Create a wrapper that handles nil arguments
+		wrappedHandler := func(ctx *Context, args interface{}) (interface{}, error) {
+			// Call the original handler using reflection
+			results := handlerValue.Call([]reflect.Value{
+				reflect.ValueOf(ctx),
+				reflect.ValueOf(args), // args will be nil for tools that don't need arguments
+			})
+
+			// Extract the results
+			var resultValue interface{}
+			var errValue error
+
+			if !results[0].IsNil() {
+				resultValue = results[0].Interface()
+			}
+
+			if !results[1].IsNil() {
+				errValue = results[1].Interface().(error)
+			}
+
+			return resultValue, errValue
+		}
+
+		return wrappedHandler, emptySchema, nil
+	}
+
+	// Check if it's map[string]interface{} - these are not allowed
+	if argsType == reflect.TypeOf(map[string]interface{}{}) {
+		return nil, nil, errors.New("tool handler second parameter cannot be map[string]interface{} - must use a struct type for proper schema generation")
+	}
+
+	// Extract schema from struct parameter type
+	var schemaMap map[string]interface{}
+	paramType := argsType
+	isPointer := false
+
+	if paramType.Kind() == reflect.Ptr {
+		paramType = paramType.Elem()
+		isPointer = true
+	}
+
+	// Must be a struct type for schema generation (including anonymous structs)
+	if paramType.Kind() != reflect.Struct {
+		return nil, nil, fmt.Errorf("tool handler second parameter must be a struct type (or pointer to struct) for proper schema generation, got %s (kind: %s)", paramType.String(), paramType.Kind().String())
+	}
+
+	// Create an instance for schema generation
+	var structInstance interface{}
+	if isPointer {
+		structInstance = reflect.New(paramType).Interface()
+	} else {
+		structInstance = reflect.New(paramType).Elem().Interface()
+	}
+
+	// Generate schema from the struct
+	generator := schema.NewGenerator()
+	var err error
+	schemaMap, err = generator.GenerateSchema(structInstance)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate schema from struct: %w", err)
+	}
+
+	// Create a wrapper that converts the specific handler to work with our validation system
+	wrappedHandler := func(ctx *Context, args interface{}) (interface{}, error) {
+		// Convert args map to the correct struct type using schema validation
+		argsMap, ok := args.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("args must be a map[string]interface{}, got %T", args)
+		}
+
+		// Validate and convert the arguments to the expected type
+		convertedArgs, err := schema.ValidateAndConvertArgs(schemaMap, argsMap, argsType)
+		if err != nil {
+			return nil, fmt.Errorf("argument validation failed: %w", err)
+		}
+
+		// Call the original handler using reflection with the converted args
+		results := handlerValue.Call([]reflect.Value{
+			reflect.ValueOf(ctx),
+			reflect.ValueOf(convertedArgs),
+		})
+
+		// Extract the results
+		var resultValue interface{}
+		var errValue error
+
+		if !results[0].IsNil() {
+			resultValue = results[0].Interface()
+		}
+
+		if !results[1].IsNil() {
+			errValue = results[1].Interface().(error)
+		}
+
+		return resultValue, errValue
+	}
+
+	return wrappedHandler, schemaMap, nil
+}
+
+// registerTool is an internal method that stores a tool in the server's registry.
+// It handles the actual registration logic and manages tool metadata.
+// This method is called by the public Tool method after validation.
+func (s *serverImpl) registerTool(name string, description string, handler interface{}, schema map[string]interface{}, annotations map[string]interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Validate tool name is not empty
 	if name == "" {
 		s.logger.Error("tool name cannot be empty")
-		return s
+		return
 	}
 
-	// Check for duplicate tool names
-	existingTool, exists := s.tools[name]
-	isUpdate := false
-	if exists {
-		// For functions and maps, we can't do direct comparison
-		// We'll consider it an update if the description changed, which is a simple way to trigger a notification
-		isUpdate = existingTool.Description != description
-		s.logger.Warn("tool already registered, overwriting", "name", name)
-	}
-
-	// Store the tool in the server's tools map
-	s.tools[name] = &Tool{
+	// Create the tool
+	tool := &Tool{
 		Name:        name,
 		Description: description,
 		Handler:     handler,
 		Schema:      schema,
-		Annotations: make(map[string]interface{}),
+		Annotations: annotations,
 	}
 
-	s.logger.Debug("registered tool", "name", name)
+	// Store the tool
+	s.tools[name] = tool
 
-	// Mark that tools have changed, but don't send a notification immediately
-	// The notification will be sent after client initialization
-	if !exists || isUpdate {
-		s.toolsChanged = true
-	}
+	// Emit tool registration event
+	go func() {
+		events.Publish[events.ToolRegisteredEvent](s.events, events.TopicToolRegistered, events.ToolRegisteredEvent{
+			ToolName:     name,
+			Description:  description,
+			RegisteredAt: time.Now(),
+			Schema:       schema,
+			Annotations:  annotations,
+		})
+	}()
 
-	return s
+	// Mark tools as changed for potential notifications
+	s.toolsChanged = true
+
+	// Send notification asynchronously to avoid blocking
+	go func() {
+		s.sendNotification("tools/list_changed", nil)
+	}()
+
+	s.logger.Debug("tool registered", "name", name, "description", description)
 }
 
 // ProcessToolList processes a tool list request and returns the list of available tools.
@@ -173,62 +350,11 @@ func (s *serverImpl) ProcessToolList(ctx *Context) (interface{}, error) {
 	return result, nil
 }
 
-// extractSchema extracts a JSON Schema from a handler function.
-// It analyzes the function's parameter structure and generates a schema
-// that describes the expected input format. This is used to inform clients
-// about the structure of arguments the tool expects.
-func extractSchema(handler interface{}) (map[string]interface{}, error) {
-	handlerType := reflect.TypeOf(handler)
-	if handlerType.Kind() != reflect.Func {
-		return nil, errors.New("handler must be a function")
-	}
-
-	// Functions must have at least two parameters (context and args)
-	if handlerType.NumIn() < 2 {
-		return nil, errors.New("handler must have at least two parameters (context and args)")
-	}
-
-	// Get the second parameter (args)
-	argType := handlerType.In(1)
-
-	// If it's a pointer, get the element type
-	if argType.Kind() == reflect.Ptr {
-		argType = argType.Elem()
-	}
-
-	// Try to infer the schema from the parameter type
-	if argType.Kind() == reflect.Struct {
-		// Create an instance of the struct for schema generation
-		structVal := reflect.New(argType).Elem().Interface()
-
-		// Use the schema generator to create a schema from the struct
-		generator := schema.NewGenerator()
-		schemaMap, err := generator.GenerateSchema(structVal)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate schema: %w", err)
-		}
-
-		// If the schema is empty, add some defaults
-		if props, ok := schemaMap["properties"].(map[string]interface{}); ok && len(props) == 0 {
-			// Default to a generic object schema
-			schemaMap = map[string]interface{}{
-				"type": "object",
-			}
-		}
-
-		return schemaMap, nil
-	}
-
-	// For non-struct types, return a generic schema
-	return map[string]interface{}{
-		"type": "object",
-	}, nil
-}
-
 // executeTool executes a registered tool with the given arguments.
 // It handles argument validation, conversion, and execution of the tool handler.
 // Returns the result from the tool handler or an error if execution fails.
 func (s *serverImpl) executeTool(ctx *Context, name string, args map[string]interface{}) (interface{}, error) {
+	// First get the tool without holding any locks during cancellation registration
 	s.mu.RLock()
 	tool, exists := s.tools[name]
 	s.mu.RUnlock()
@@ -237,22 +363,17 @@ func (s *serverImpl) executeTool(ctx *Context, name string, args map[string]inte
 		return nil, fmt.Errorf("tool not found: %s", name)
 	}
 
-	// Register for cancellation notifications
-	cancelCh := ctx.RegisterForCancellation()
-
-	// Get the handler's parameter type
-	handlerType := reflect.TypeOf(tool.Handler)
-	paramType := handlerType.In(1)
-
-	// Validate and convert the arguments using schema package
-	convertedArgs, err := schema.ValidateAndConvertArgs(tool.Schema.(map[string]interface{}), args, paramType)
-	if err != nil {
-		return nil, fmt.Errorf("invalid arguments: %w", err)
+	// Build raw request data
+	rawRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name":      name,
+			"arguments": args,
+		},
 	}
-
-	// Check for cancellation before executing
-	if ctx.IsCancelled() {
-		return nil, fmt.Errorf("tool execution cancelled before starting: %s", name)
+	if ctx.Request != nil && ctx.Request.ID != nil {
+		rawRequest["id"] = ctx.Request.ID
 	}
 
 	// Execute the tool handler with cancellation awareness
@@ -262,10 +383,23 @@ func (s *serverImpl) executeTool(ctx *Context, name string, args map[string]inte
 	}, 1)
 
 	go func() {
-		result, err := tool.Handler(ctx, convertedArgs)
+		// The tool.Handler is already a wrapped function that handles validation and conversion
+		// Call it directly with the context and original args map
+		wrappedHandler, ok := tool.Handler.(func(*Context, interface{}) (interface{}, error))
+		if !ok {
+			resultCh <- struct {
+				result interface{}
+				err    error
+			}{nil, fmt.Errorf("invalid handler type for tool %s", name)}
+			return
+		}
+
+		// Call the wrapped handler with the original args
+		result, err := wrappedHandler(ctx, args)
+
 		// Check if cancelled after execution but before sending result
 		select {
-		case <-cancelCh:
+		case <-ctx.RegisterForCancellation():
 			// Execution completed but was cancelled - don't send result
 			return
 		default:
@@ -278,17 +412,57 @@ func (s *serverImpl) executeTool(ctx *Context, name string, args map[string]inte
 	}()
 
 	// Wait for either result or cancellation
+	var finalResult interface{}
+	var finalErr error
+
 	select {
-	case <-cancelCh:
+	case <-ctx.RegisterForCancellation():
 		// Request was cancelled during execution
-		return nil, fmt.Errorf("tool execution cancelled: %s", name)
+		finalErr = fmt.Errorf("tool execution cancelled: %s", name)
 	case res := <-resultCh:
 		// Execution completed
-		if res.err != nil {
-			return nil, fmt.Errorf("tool execution failed: %w", res.err)
-		}
-		return res.result, nil
+		finalResult = res.result
+		finalErr = res.err
 	}
+
+	// Build raw response data
+	var rawResponse map[string]interface{}
+	if finalErr != nil {
+		rawResponse = map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      ctx.Request.ID,
+			"error": map[string]interface{}{
+				"code":    -32000,
+				"message": finalErr.Error(),
+			},
+		}
+	} else {
+		rawResponse = map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      ctx.Request.ID,
+			"result":  finalResult,
+		}
+	}
+
+	// Publish tool execution event with actual request/response objects
+	go func() {
+		requestJSON, _ := json.Marshal(rawRequest)
+		responseJSON, _ := json.Marshal(rawResponse)
+		events.Publish[events.ToolExecutedEvent](s.events, events.TopicToolExecuted, events.ToolExecutedEvent{
+			Method:       "tools/call",
+			RequestJSON:  string(requestJSON),
+			ResponseJSON: string(responseJSON),
+		})
+	}()
+
+	// Return the final result
+	if finalErr != nil {
+		if finalErr.Error() == fmt.Sprintf("tool execution cancelled: %s", name) {
+			return nil, finalErr
+		}
+		return nil, fmt.Errorf("tool execution failed: %w", finalErr)
+	}
+	return finalResult, nil
 }
 
 // ProcessToolCall processes a tool call message and returns the result.
@@ -458,9 +632,10 @@ func (s *serverImpl) SendToolsListChangedNotification() error {
 		return fmt.Errorf("failed to marshal notification: %w", err)
 	}
 
-	// Check if the server is initialized
+	// Check if the server is initialized (minimize lock scope)
 	s.mu.RLock()
 	initialized := s.initialized
+	transport := s.transport
 	s.mu.RUnlock()
 
 	// If the server is not initialized, queue the notification for later
@@ -472,9 +647,9 @@ func (s *serverImpl) SendToolsListChangedNotification() error {
 		return nil
 	}
 
-	// Send the notification through the configured transport
-	if s.transport != nil {
-		if err := s.transport.Send(notificationBytes); err != nil {
+	// Send the notification through the configured transport (no mutex needed for this)
+	if transport != nil {
+		if err := transport.Send(notificationBytes); err != nil {
 			s.logger.Error("failed to send notification", "error", err)
 			return fmt.Errorf("failed to send notification: %w", err)
 		}
@@ -484,137 +659,4 @@ func (s *serverImpl) SendToolsListChangedNotification() error {
 
 	s.logger.Debug("sent tools/list_changed notification")
 	return nil
-}
-
-// WithAnnotations adds annotations to a tool.
-// Annotations provide additional metadata that can be used by clients.
-// The function returns the server instance to allow for method chaining.
-func (s *serverImpl) WithAnnotations(toolName string, annotations map[string]interface{}) Server {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	tool, exists := s.tools[toolName]
-	if !exists {
-		s.logger.Error("tool not found for annotations", "name", toolName)
-		return s
-	}
-
-	// Update the tool's annotations
-	for k, v := range annotations {
-		tool.Annotations[k] = v
-	}
-
-	// Mark that tools have changed, but don't send a notification immediately
-	// The notification will be sent after client initialization
-	s.toolsChanged = true
-
-	return s
-}
-
-// WithSchema adds a JSON Schema to a registered tool.
-// The schema parameter must be a valid JSON Schema object that describes
-// the expected arguments for the tool.
-func (s *serverImpl) WithSchema(toolName string, schema interface{}) Server {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	tool, exists := s.tools[toolName]
-	if !exists {
-		s.logger.Error("tool not found for schema", "name", toolName)
-		return s
-	}
-
-	// Set the schema for the tool
-	tool.Schema = schema
-
-	// Mark that tools have changed, but don't send a notification immediately
-	// The notification will be sent after client initialization
-	s.toolsChanged = true
-
-	return s
-}
-
-// convertToToolHandler converts a function to a ToolHandler if possible.
-// It uses reflection to validate the function signature and creates a wrapper
-// that adapts the function to the ToolHandler interface. Returns the converted
-// handler and a boolean indicating success.
-func convertToToolHandler(handler interface{}) (ToolHandler, bool) {
-	if handler == nil {
-		return nil, false
-	}
-
-	// Check if it's already a ToolHandler
-	if h, ok := handler.(ToolHandler); ok {
-		return h, true
-	}
-
-	// Check if it's a function with the right signature using reflection
-	handlerValue := reflect.ValueOf(handler)
-	handlerType := handlerValue.Type()
-
-	if handlerType.Kind() != reflect.Func {
-		return nil, false
-	}
-
-	if handlerType.NumIn() != 2 || handlerType.NumOut() != 2 {
-		return nil, false
-	}
-
-	// Check if first param is *Context
-	if handlerType.In(0) != reflect.TypeOf((*Context)(nil)) {
-		return nil, false
-	}
-
-	// Check if second return is error
-	if !handlerType.Out(1).Implements(reflect.TypeOf((*error)(nil)).Elem()) {
-		return nil, false
-	}
-
-	// Get the second parameter type (args type)
-	paramType := handlerType.In(1)
-
-	// Create a tool handler that calls the original function
-	toolHandler := func(ctx *Context, args interface{}) (interface{}, error) {
-		var argValue reflect.Value
-
-		// If args is already the correct type, use it directly
-		if reflect.TypeOf(args) == paramType {
-			argValue = reflect.ValueOf(args)
-		} else if mapArgs, ok := args.(map[string]interface{}); ok {
-			// For map arguments going to a struct parameter, use a more robust conversion
-
-			// Create a placeholder schema if one wasn't explicitly provided
-			schemaMap := map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			}
-
-			// Use the schema validation and conversion utility
-			convertedArg, err := schema.ValidateAndConvertArgs(schemaMap, mapArgs, paramType)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert arguments: %w", err)
-			}
-			argValue = reflect.ValueOf(convertedArg)
-		} else {
-			// If types don't match and we can't convert, return an error
-			return nil, fmt.Errorf("incompatible argument type: expected %s, got %T", paramType, args)
-		}
-
-		// Call the handler function with the context and args
-		results := handlerValue.Call([]reflect.Value{
-			reflect.ValueOf(ctx),
-			argValue,
-		})
-
-		// Get the result values
-		result := results[0].Interface()
-		var err error
-		if !results[1].IsNil() {
-			err = results[1].Interface().(error)
-		}
-
-		return result, err
-	}
-
-	return toolHandler, true
 }

@@ -8,7 +8,8 @@ import (
 // ValidateProtocolVersion validates that the requested protocol version is supported.
 // It checks if the clientVersion is in the list of supported versions and returns
 // either the validated version or an error. If clientVersion is empty, it returns
-// the server's default version.
+// the server's default version. If the server has been configured with a specific
+// protocol version via WithProtocolVersion, that version will be enforced.
 //
 // Parameters:
 //   - clientVersion: The protocol version requested by the client
@@ -17,6 +18,13 @@ import (
 //   - The validated protocol version string
 //   - An error if the requested version is not supported
 func (s *serverImpl) ValidateProtocolVersion(clientVersion string) (string, error) {
+	// If the server has been configured with a specific protocol version via WithProtocolVersion,
+	// enforce that version regardless of what the client requests
+	if s.protocolVersion != "" {
+		s.logger.Debug("using server-enforced protocol version", "enforcedVersion", s.protocolVersion, "clientVersion", clientVersion)
+		return s.protocolVersion, nil
+	}
+
 	// If no version specified, use the default version
 	if clientVersion == "" {
 		defaultVersion := s.versionDetector.DefaultVersion

@@ -93,7 +93,7 @@ func TestUnixSocketClientServer(t *testing.T) {
 	s := server.NewServer("test-unix-server")
 
 	// Register a simple test tool using the correct naming convention (lowercase with underscore)
-	s = s.Tool("test_echo", "Echo back the message", func(ctx *server.Context) (interface{}, error) {
+	s = s.Tool("test_echo", "Echo back the message", func(ctx *server.Context, args interface{}) (interface{}, error) {
 		// Extract the message parameter from the request
 		if ctx.Request == nil || ctx.Request.ToolArgs == nil {
 			return map[string]string{"error": "no arguments provided"}, nil

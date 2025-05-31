@@ -13,18 +13,17 @@ func TestHandleMessage(t *testing.T) {
 	s := server.NewServer("test-server")
 
 	// Register a test tool
-	s.Tool("test-tool", "Test tool", func(ctx *server.Context, args map[string]interface{}) (interface{}, error) {
+	s.Tool("test-tool", "Test tool", func(ctx *server.Context, args interface{}) (interface{}, error) {
 		return "tool-executed", nil
 	})
 
-	// Register a test resource using wildcards for dynamic paths
-	s.Resource("/test-resource/{param}", "Test resource", func(ctx *server.Context, args interface{}) (interface{}, error) {
-		// Simple mock implementation
-		return "resource-executed", nil
+	// Register a test resource
+	s.Resource("/test/resource", "Test resource", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		return "Resource data", nil
 	})
 
 	// Register a test prompt
-	s.Prompt("test-prompt", "Test prompt", "template content")
+	s.Prompt("test-prompt", "Test prompt", server.User("template content"))
 
 	// Create test messages
 	testCases := []struct {
@@ -54,7 +53,7 @@ func TestHandleMessage(t *testing.T) {
 				"id":      "test-id-2",
 				"method":  "resources/read",
 				"params": map[string]interface{}{
-					"uri": "/test-resource/value",
+					"uri": "/test/resource",
 				},
 			},
 			expectedType:  "2.0",

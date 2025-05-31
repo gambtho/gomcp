@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/localrivet/gomcp/client"
+	clienttest "github.com/localrivet/gomcp/client/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -13,25 +14,46 @@ import (
 func TestStreamingSamplingConfig_NotSupported(t *testing.T) {
 	t.Run("CreateStreamingChatRequest", func(t *testing.T) {
 		messages := []client.SamplingMessage{
-			client.CreateTextSamplingMessage("user", "Tell me a story"),
+			clienttest.CreateTextSamplingMessage("user", "Tell me a story"),
 		}
 
-		// Should fail for non-streaming version
-		_, err := client.CreateStreamingChatRequest(messages, "Be creative", "2024-11-05")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "streaming not supported")
-	})
-
-	t.Run("StreamingConfig", func(t *testing.T) {
-		config := client.NewSamplingConfig()
-		config, err := config.ForVersion("2024-11-05")
+		// Should succeed but validation should fail for non-streaming version
+		opts, err := clienttest.CreateStreamingChatRequest(messages, "Be creative", "2024-11-05")
 		require.NoError(t, err)
 
-		// Streaming should not be supported
-		assert.False(t, config.StreamingSupported)
+		// Validation should fail because streaming is not supported in 2024-11-05
+		err = opts.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "streaming is only supported in protocol version 2025-03-26")
+	})
 
-		// Streaming optimization should leave it as false
-		config = config.OptimizeForStreamingChat()
-		assert.False(t, config.StreamingSupported)
+	t.Run("StreamingSupport", func(t *testing.T) {
+		// Test that streaming is not supported in 2024-11-05
+		supported := clienttest.IsStreamingSupportedForVersion("2024-11-05")
+		assert.False(t, supported)
+
+		// But it is supported in 2025-03-26
+		supported = clienttest.IsStreamingSupportedForVersion("2025-03-26")
+		assert.True(t, supported)
+	})
+
+	t.Run("SamplingOptions", func(t *testing.T) {
+		messages := []client.SamplingMessage{
+			clienttest.CreateTextSamplingMessage("user", "Hello"),
+		}
+		prefs := clienttest.NewSamplingConfig()
+
+		opts := clienttest.NewSamplingRequest(messages, prefs)
+		opts.ProtocolVersion = "2024-11-05"
+
+		// Non-streaming should work
+		err := opts.Validate()
+		require.NoError(t, err)
+
+		// But streaming should fail
+		opts.Streaming = true
+		err = opts.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "streaming is only supported in protocol version 2025-03-26")
 	})
 }

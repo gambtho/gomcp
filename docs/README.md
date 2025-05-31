@@ -17,6 +17,7 @@ GOMCP is a Go implementation of the Model Context Protocol (MCP), designed to en
 
 - Full MCP protocol implementation
 - Client and server components
+- **Comprehensive event system** - Type-safe monitoring and observability for all operations
 - Multiple transport options:
   - HTTP - Standard request/response over HTTP
   - WebSocket - Bidirectional communication for web applications

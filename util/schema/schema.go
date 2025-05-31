@@ -1036,13 +1036,19 @@ func ValidateAndConvertArgs(schemaMap map[string]interface{}, args map[string]in
 	// For struct types, create an instance and populate it
 	if paramType.Kind() == reflect.Struct ||
 		(paramType.Kind() == reflect.Ptr && paramType.Elem().Kind() == reflect.Struct) {
-		// Create a new instance of the target type
-		var target reflect.Value
-		if paramType.Kind() == reflect.Ptr {
-			target = reflect.New(paramType.Elem())
+
+		// Determine the actual struct type and whether we need a pointer
+		var structType reflect.Type
+		needsPointer := paramType.Kind() == reflect.Ptr
+
+		if needsPointer {
+			structType = paramType.Elem()
 		} else {
-			target = reflect.New(paramType)
+			structType = paramType
 		}
+
+		// Create a new instance of the target struct (always start with a pointer)
+		target := reflect.New(structType)
 
 		// Validate against schema before decoding
 		validator := NewValidator()
@@ -1098,12 +1104,14 @@ func ValidateAndConvertArgs(schemaMap map[string]interface{}, args map[string]in
 			return nil, fmt.Errorf("error parsing arguments: %w", err)
 		}
 
-		// If the parameter is a struct (not a pointer to struct), deref the value
-		if paramType.Kind() == reflect.Struct {
+		// Return the appropriate type based on what the parameter expects
+		if needsPointer {
+			// Parameter expects a pointer to struct
+			return target.Interface(), nil
+		} else {
+			// Parameter expects a struct by value
 			return target.Elem().Interface(), nil
 		}
-
-		return target.Interface(), nil
 	}
 
 	// For slice/array types, create a slice and populate it

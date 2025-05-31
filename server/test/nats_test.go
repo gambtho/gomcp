@@ -24,11 +24,20 @@ func TestNATSServer(t *testing.T) {
 	)
 
 	// Register a simple echo tool
-	srv.Tool("echo", "Echo the message back", func(ctx *server.Context, args struct {
-		Message string `json:"message"`
-	}) (map[string]interface{}, error) {
+	srv.Tool("echo", "Echo the message back", func(ctx *server.Context, args interface{}) (interface{}, error) {
+		// Extract the message parameter from the request
+		if ctx.Request == nil || ctx.Request.ToolArgs == nil {
+			return map[string]interface{}{"error": "no arguments provided"}, nil
+		}
+
+		// Get the message parameter
+		message, ok := ctx.Request.ToolArgs["message"].(string)
+		if !ok {
+			return map[string]interface{}{"echo": "no message provided"}, nil
+		}
+
 		return map[string]interface{}{
-			"message": args.Message,
+			"message": message,
 		}, nil
 	})
 

@@ -1,10 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/localrivet/gomcp/events"
 )
 
 // handleMessage processes incoming JSON-RPC messages from clients.
@@ -32,7 +35,95 @@ func (s *serverImpl) handleMessage(message []byte) ([]byte, error) {
 
 // HandleMessage handles an incoming message from the transport.
 // It parses the message, routes it to the appropriate handler, and returns the response.
+// Supports both single JSON-RPC messages and batch messages (arrays) as required by the MCP specification.
 func HandleMessage(s *serverImpl, message []byte) ([]byte, error) {
+	// Detect if this is a batch message (JSON array) or single message (JSON object)
+	if isBatchMessage(message) {
+		return handleBatchMessage(s, message)
+	}
+
+	// Handle single message (existing logic)
+	return handleSingleMessage(s, message)
+}
+
+// isBatchMessage determines if the incoming message is a JSON array (batch) or single object
+func isBatchMessage(message []byte) bool {
+	// Trim whitespace and check if it starts with '['
+	trimmed := bytes.TrimSpace(message)
+	return len(trimmed) > 0 && trimmed[0] == '['
+}
+
+// handleBatchMessage processes a JSON-RPC batch message according to the JSON-RPC 2.0 specification
+func handleBatchMessage(s *serverImpl, message []byte) ([]byte, error) {
+	// Parse the batch array
+	var batch []json.RawMessage
+	if err := json.Unmarshal(message, &batch); err != nil {
+		s.logger.Error("failed to parse batch message", "error", err)
+		return createErrorResponse(nil, -32700, "Parse error", "Invalid batch format"), nil
+	}
+
+	// Validate that the batch is not empty (invalid per JSON-RPC 2.0 spec)
+	if len(batch) == 0 {
+		s.logger.Error("received empty batch message")
+		return createErrorResponse(nil, -32600, "Invalid Request", "Batch cannot be empty"), nil
+	}
+
+	// Process each message in the batch
+	var responses []interface{}
+	for _, rawMessage := range batch {
+		response := processBatchItem(s, rawMessage)
+		// Only add responses for requests (not notifications)
+		if response != nil {
+			responses = append(responses, response)
+		}
+	}
+
+	// If no responses were generated (all notifications), return nothing
+	if len(responses) == 0 {
+		return nil, nil
+	}
+
+	// Return the batch response
+	responseBytes, err := json.Marshal(responses)
+	if err != nil {
+		s.logger.Error("failed to marshal batch response", "error", err)
+		return createErrorResponse(nil, -32603, "Internal error", "Failed to marshal batch response"), nil
+	}
+
+	return responseBytes, nil
+}
+
+// processBatchItem processes a single item within a batch and returns the response (or nil for notifications)
+func processBatchItem(s *serverImpl, rawMessage json.RawMessage) interface{} {
+	// Process the individual message
+	responseBytes, _ := handleSingleMessage(s, rawMessage)
+
+	// If there's no response (notification), return nil
+	if responseBytes == nil {
+		return nil
+	}
+
+	// Parse the response back to an object for inclusion in the batch response
+	var response interface{}
+	if err := json.Unmarshal(responseBytes, &response); err != nil {
+		// If we can't parse the response, create an error response
+		s.logger.Error("failed to parse individual response in batch", "error", err)
+		return map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      nil,
+			"error": map[string]interface{}{
+				"code":    -32603,
+				"message": "Internal error",
+				"data":    "Failed to parse individual response",
+			},
+		}
+	}
+
+	return response
+}
+
+// handleSingleMessage processes a single JSON-RPC message (extracted from original HandleMessage logic)
+func handleSingleMessage(s *serverImpl, message []byte) ([]byte, error) {
 	// Create a new context with the incoming message
 	ctx, err := NewContext(context.Background(), message, s)
 	if err != nil {
@@ -118,36 +209,63 @@ func HandleMessage(s *serverImpl, message []byte) ([]byte, error) {
 
 	default:
 		err = fmt.Errorf("method not found: %s", ctx.Request.Method)
-		return createErrorResponse(ctx.Request.ID, -32601, "Method not found", err.Error()), nil
 	}
 
+	// Handle errors
 	if err != nil {
-		s.logger.Error("failed to process message", "method", ctx.Request.Method, "error", err)
-		// Use the right error code:
-		// -32601 for "Method not implemented" messages
-		// -32602 for "Invalid parameters" errors
-		// -32603 for other internal errors
-		if err.Error() == fmt.Sprintf("method not implemented: %s", ctx.Request.Method) {
-			return createErrorResponse(ctx.Request.ID, -32601, "Method not implemented", err.Error()), nil
-		}
+		// Emit event with actual request JSON and error
+		go func() {
+			events.Publish[events.RequestFailedEvent](s.events, events.TopicRequestFailed, events.RequestFailedEvent{
+				Method:      ctx.Request.Method,
+				RequestJSON: string(message),
+				Error:       err.Error(),
+			})
+		}()
 
-		// Check if it's an invalid parameters error
+		// Determine the appropriate error code based on error type
+		var errorCode int
+		var errorMessage string
+
+		// Check if this is an InvalidParametersError
 		if _, ok := err.(*InvalidParametersError); ok {
-			return createErrorResponse(ctx.Request.ID, -32602, "Invalid params", err.Error()), nil
+			errorCode = -32602 // Invalid params
+			errorMessage = "Invalid params"
+		} else {
+			errorCode = -32603 // Internal error
+			errorMessage = "Internal error"
 		}
 
-		return createErrorResponse(ctx.Request.ID, -32603, "Internal error", err.Error()), nil
+		// Return error response
+		return createErrorResponse(ctx.Request.ID, errorCode, errorMessage, err.Error()), nil
 	}
 
-	// Set the result in the response
-	ctx.Response.Result = result
+	// Check if this is a notification (no ID)
+	if ctx.Request.ID == nil {
+		// Notifications don't return responses
+		return nil, nil
+	}
 
-	// Encode the response as JSON
-	responseBytes, err := json.Marshal(ctx.Response)
+	// Create success response
+	response := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      ctx.Request.ID,
+		"result":  result,
+	}
+
+	responseBytes, err := json.Marshal(response)
 	if err != nil {
 		s.logger.Error("failed to marshal response", "error", err)
 		return createErrorResponse(ctx.Request.ID, -32603, "Internal error", "Failed to marshal response"), nil
 	}
+
+	// Emit event with actual request and response JSON
+	go func() {
+		events.Publish[events.ToolExecutedEvent](s.events, events.TopicToolExecuted, events.ToolExecutedEvent{
+			Method:       ctx.Request.Method,
+			RequestJSON:  string(message),
+			ResponseJSON: string(responseBytes),
+		})
+	}()
 
 	return responseBytes, nil
 }

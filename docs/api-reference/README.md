@@ -11,6 +11,7 @@ This section provides comprehensive documentation for the GOMCP API.
 - [client](client.md) - Client-side implementation of the MCP protocol
 - [server](server.md) - Server-side implementation of the MCP protocol
 - [mcp](mcp.md) - Core protocol types and version handling
+- [events](events.md) - Comprehensive event system for monitoring and observability
 
 ## Transport Packages
 

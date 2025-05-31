@@ -2,385 +2,327 @@ package test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/localrivet/gomcp/client"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// TestClientHandleSamplingCreateMessage tests the client's handling of sampling/createMessage requests
-func TestClientHandleSamplingCreateMessage(t *testing.T) {
-	// Create a mock transport with proper initialization
-	mockTransport := SetupMockTransport("2024-11-05")
-	EnsureConnected(mockTransport)
-
-	// Create a client
-	c, err := client.NewClient("test-client",
-		client.WithTransport(mockTransport),
-	)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
-	defer c.Close()
-
-	// Test that we can register a sampling handler
-	var receivedParams client.SamplingCreateMessageParams
-	handlerCalled := false
-
-	SetSamplingHandler(c, func(params client.SamplingCreateMessageParams) (client.SamplingResponse, error) {
-		receivedParams = params
-		handlerCalled = true
-		return client.SamplingResponse{
-			Role: "assistant",
-			Content: client.SamplingMessageContent{
-				Type: "text",
-				Text: "Test response from sampling handler",
-			},
-		}, nil
-	})
-
-	// Verify the handler was registered
-	handler := c.GetSamplingHandler()
-	if handler == nil {
-		t.Fatal("Sampling handler was not registered")
-	}
-
-	// Test calling the handler directly
-	testParams := client.SamplingCreateMessageParams{
-		Messages: []client.SamplingMessage{
-			{
-				Role: "user",
-				Content: client.SamplingMessageContent{
-					Type: "text",
-					Text: "Hello, how are you?",
-				},
-			},
-		},
-		ModelPreferences: client.SamplingModelPreferences{},
-		SystemPrompt:     "You are a helpful assistant",
-		MaxTokens:        100,
-	}
-
-	response, err := handler(testParams)
-	if err != nil {
-		t.Fatalf("Handler returned error: %v", err)
-	}
-
-	// Verify the handler was called
-	if !handlerCalled {
-		t.Error("Sampling handler was not called")
-	}
-
-	// Verify the response
-	if response.Role != "assistant" {
-		t.Errorf("Expected role 'assistant', got '%s'", response.Role)
-	}
-	if response.Content.Type != "text" {
-		t.Errorf("Expected content type 'text', got '%s'", response.Content.Type)
-	}
-	if response.Content.Text != "Test response from sampling handler" {
-		t.Errorf("Expected text 'Test response from sampling handler', got '%s'", response.Content.Text)
-	}
-
-	// Verify the parameters were received correctly
-	if len(receivedParams.Messages) != 1 {
-		t.Errorf("Expected 1 message, got %d", len(receivedParams.Messages))
-	}
-
-	if receivedParams.Messages[0].Role != "user" {
-		t.Errorf("Expected role 'user', got '%s'", receivedParams.Messages[0].Role)
-	}
-
-	if receivedParams.Messages[0].Content.Type != "text" {
-		t.Errorf("Expected content type 'text', got '%s'", receivedParams.Messages[0].Content.Type)
-	}
-
-	if receivedParams.Messages[0].Content.Text != "Hello, how are you?" {
-		t.Errorf("Expected text 'Hello, how are you?', got '%s'", receivedParams.Messages[0].Content.Text)
-	}
-
-	if receivedParams.SystemPrompt != "You are a helpful assistant" {
-		t.Errorf("Expected system prompt 'You are a helpful assistant', got '%s'", receivedParams.SystemPrompt)
-	}
-
-	if receivedParams.MaxTokens != 100 {
-		t.Errorf("Expected max tokens 100, got %d", receivedParams.MaxTokens)
-	}
-}
-
-// TestTextSamplingContent tests the TextSamplingContent type
-func TestTextSamplingContent(t *testing.T) {
-	// Test creating text content
-	textContent := &client.TextSamplingContent{
-		Text: "Hello, world!",
-	}
-
-	// Test validation
-	if err := textContent.Validate(); err != nil {
-		t.Errorf("Valid text content failed validation: %v", err)
-	}
-
-	// Test empty text validation
-	emptyContent := &client.TextSamplingContent{
-		Text: "",
-	}
-	if err := emptyContent.Validate(); err == nil {
-		t.Error("Empty text content should fail validation")
-	}
-
-	// Test conversion to message content
-	msgContent := textContent.ToMessageContent()
-	if msgContent.Type != "text" {
-		t.Errorf("Expected type 'text', got '%s'", msgContent.Type)
-	}
-	if msgContent.Text != "Hello, world!" {
-		t.Errorf("Expected text 'Hello, world!', got '%s'", msgContent.Text)
-	}
-}
-
-// TestImageSamplingContent tests the ImageSamplingContent type
-func TestImageSamplingContent(t *testing.T) {
-	// Test creating image content
-	imageContent := &client.ImageSamplingContent{
-		Data:     "base64encodeddata",
-		MimeType: "image/png",
-	}
-
-	// Test validation
-	if err := imageContent.Validate(); err != nil {
-		t.Errorf("Valid image content failed validation: %v", err)
-	}
-
-	// Test empty data validation
-	emptyDataContent := &client.ImageSamplingContent{
-		Data:     "",
-		MimeType: "image/png",
-	}
-	if err := emptyDataContent.Validate(); err == nil {
-		t.Error("Image content with empty data should fail validation")
-	}
-
-	// Test empty mime type validation
-	emptyMimeContent := &client.ImageSamplingContent{
-		Data:     "base64encodeddata",
-		MimeType: "",
-	}
-	if err := emptyMimeContent.Validate(); err == nil {
-		t.Error("Image content with empty mime type should fail validation")
-	}
-
-	// Test conversion to message content
-	msgContent := imageContent.ToMessageContent()
-	if msgContent.Type != "image" {
-		t.Errorf("Expected type 'image', got '%s'", msgContent.Type)
-	}
-	if msgContent.Data != "base64encodeddata" {
-		t.Errorf("Expected data 'base64encodeddata', got '%s'", msgContent.Data)
-	}
-	if msgContent.MimeType != "image/png" {
-		t.Errorf("Expected mime type 'image/png', got '%s'", msgContent.MimeType)
-	}
-}
-
-// TestAudioSamplingContent tests the AudioSamplingContent type
-func TestAudioSamplingContent(t *testing.T) {
-	// Test creating audio content
-	audioContent := &client.AudioSamplingContent{
-		Data:     "base64encodedaudio",
-		MimeType: "audio/wav",
-	}
-
-	// Test validation
-	if err := audioContent.Validate(); err != nil {
-		t.Errorf("Valid audio content failed validation: %v", err)
-	}
-
-	// Test empty data validation
-	emptyDataContent := &client.AudioSamplingContent{
-		Data:     "",
-		MimeType: "audio/wav",
-	}
-	if err := emptyDataContent.Validate(); err == nil {
-		t.Error("Audio content with empty data should fail validation")
-	}
-
-	// Test empty mime type validation
-	emptyMimeContent := &client.AudioSamplingContent{
-		Data:     "base64encodedaudio",
-		MimeType: "",
-	}
-	if err := emptyMimeContent.Validate(); err == nil {
-		t.Error("Audio content with empty mime type should fail validation")
-	}
-
-	// Test conversion to message content
-	msgContent := audioContent.ToMessageContent()
-	if msgContent.Type != "audio" {
-		t.Errorf("Expected type 'audio', got '%s'", msgContent.Type)
-	}
-	if msgContent.Data != "base64encodedaudio" {
-		t.Errorf("Expected data 'base64encodedaudio', got '%s'", msgContent.Data)
-	}
-	if msgContent.MimeType != "audio/wav" {
-		t.Errorf("Expected mime type 'audio/wav', got '%s'", msgContent.MimeType)
-	}
-}
-
-// TestValidateContentForVersion tests content validation against protocol versions
-func TestValidateContentForVersion(t *testing.T) {
+func TestSamplingMessageContent_IsValidForVersion(t *testing.T) {
 	testCases := []struct {
-		name        string
-		contentType string
-		version     string
-		shouldPass  bool
+		name          string
+		content       client.SamplingMessageContent
+		version       string
+		shouldBeValid bool
 	}{
-		{"text content in draft", "text", "draft", true},
-		{"text content in 2024-11-05", "text", "2024-11-05", true},
-		{"text content in 2025-03-26", "text", "2025-03-26", true},
-		{"image content in draft", "image", "draft", true},
-		{"image content in 2024-11-05", "image", "2024-11-05", true},
-		{"image content in 2025-03-26", "image", "2025-03-26", true},
-		{"audio content in draft", "audio", "draft", true},
-		{"audio content in 2024-11-05", "audio", "2024-11-05", false}, // Audio not supported in 2024-11-05
-		{"audio content in 2025-03-26", "audio", "2025-03-26", true},
-		{"unknown content in any version", "unknown", "draft", false},
+		{
+			name: "text content in draft",
+			content: client.SamplingMessageContent{
+				Type: "text",
+				Text: "Hello world",
+			},
+			version:       "draft",
+			shouldBeValid: true,
+		},
+		{
+			name: "text content in 2024-11-05",
+			content: client.SamplingMessageContent{
+				Type: "text",
+				Text: "Hello world",
+			},
+			version:       "2024-11-05",
+			shouldBeValid: true,
+		},
+		{
+			name: "text content in 2025-03-26",
+			content: client.SamplingMessageContent{
+				Type: "text",
+				Text: "Hello world",
+			},
+			version:       "2025-03-26",
+			shouldBeValid: true,
+		},
+		{
+			name: "image content in 2024-11-05",
+			content: client.SamplingMessageContent{
+				Type:     "image",
+				Data:     "base64-image-data",
+				MimeType: "image/jpeg",
+			},
+			version:       "2024-11-05",
+			shouldBeValid: true,
+		},
+		{
+			name: "audio content in 2025-03-26",
+			content: client.SamplingMessageContent{
+				Type:     "audio",
+				Data:     "base64-audio-data",
+				MimeType: "audio/wav",
+			},
+			version:       "2025-03-26",
+			shouldBeValid: true,
+		},
+		{
+			name: "audio content in 2024-11-05 (not supported)",
+			content: client.SamplingMessageContent{
+				Type:     "audio",
+				Data:     "base64-audio-data",
+				MimeType: "audio/wav",
+			},
+			version:       "2024-11-05",
+			shouldBeValid: false,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			content := client.SamplingMessageContent{
-				Type: tc.contentType,
-				Text: "test",
-			}
-
-			isValid := content.IsValidForVersion(tc.version)
-			if isValid != tc.shouldPass {
-				t.Errorf("Expected validation result %v for %s in version %s, got %v",
-					tc.shouldPass, tc.contentType, tc.version, isValid)
-			}
+			isValid := tc.content.IsValidForVersion(tc.version)
+			assert.Equal(t, tc.shouldBeValid, isValid)
 		})
 	}
 }
 
-// TestCreateSamplingMessage tests creating sampling messages
-func TestCreateSamplingMessage(t *testing.T) {
-	// Test creating text message
-	textMsg := client.CreateTextSamplingMessage("user", "Hello, world!")
-	if textMsg.Role != "user" {
-		t.Errorf("Expected role 'user', got '%s'", textMsg.Role)
-	}
-	if textMsg.Content.Type != "text" {
-		t.Errorf("Expected content type 'text', got '%s'", textMsg.Content.Type)
-	}
-	if textMsg.Content.Text != "Hello, world!" {
-		t.Errorf("Expected text 'Hello, world!', got '%s'", textMsg.Content.Text)
-	}
+func TestSamplingOptions_Validation(t *testing.T) {
+	t.Run("valid options", func(t *testing.T) {
+		messages := []client.SamplingMessage{
+			client.CreateTextMessage("user", "Hello"),
+		}
+		prefs := client.SamplingModelPreferences{}
 
-	// Test creating image message
-	imageMsg := client.CreateImageSamplingMessage("user", "base64data", "image/png")
-	if imageMsg.Role != "user" {
-		t.Errorf("Expected role 'user', got '%s'", imageMsg.Role)
-	}
-	if imageMsg.Content.Type != "image" {
-		t.Errorf("Expected content type 'image', got '%s'", imageMsg.Content.Type)
-	}
-	if imageMsg.Content.Data != "base64data" {
-		t.Errorf("Expected data 'base64data', got '%s'", imageMsg.Content.Data)
-	}
-	if imageMsg.Content.MimeType != "image/png" {
-		t.Errorf("Expected mime type 'image/png', got '%s'", imageMsg.Content.MimeType)
-	}
+		opts := client.NewSamplingOptions(messages, prefs)
+		opts.ProtocolVersion = "2025-03-26"
 
-	// Test creating audio message
-	audioMsg := client.CreateAudioSamplingMessage("user", "base64audio", "audio/wav")
-	if audioMsg.Role != "user" {
-		t.Errorf("Expected role 'user', got '%s'", audioMsg.Role)
-	}
-	if audioMsg.Content.Type != "audio" {
-		t.Errorf("Expected content type 'audio', got '%s'", audioMsg.Content.Type)
-	}
-	if audioMsg.Content.Data != "base64audio" {
-		t.Errorf("Expected data 'base64audio', got '%s'", audioMsg.Content.Data)
-	}
-	if audioMsg.Content.MimeType != "audio/wav" {
-		t.Errorf("Expected mime type 'audio/wav', got '%s'", audioMsg.Content.MimeType)
-	}
+		err := opts.Validate()
+		require.NoError(t, err)
+	})
+
+	t.Run("no messages", func(t *testing.T) {
+		prefs := client.SamplingModelPreferences{}
+		opts := client.NewSamplingOptions([]client.SamplingMessage{}, prefs)
+
+		err := opts.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "at least one message is required")
+	})
+
+	t.Run("streaming without handler", func(t *testing.T) {
+		messages := []client.SamplingMessage{
+			client.CreateTextMessage("user", "Hello"),
+		}
+		prefs := client.SamplingModelPreferences{}
+
+		opts := client.NewSamplingOptions(messages, prefs)
+		opts.ProtocolVersion = "2025-03-26"
+		opts.Streaming = true
+		// No StreamHandler set
+
+		err := opts.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "stream handler is required for streaming mode")
+	})
+
+	t.Run("streaming in unsupported version", func(t *testing.T) {
+		messages := []client.SamplingMessage{
+			client.CreateTextMessage("user", "Hello"),
+		}
+		prefs := client.SamplingModelPreferences{}
+
+		opts := client.NewSamplingOptions(messages, prefs)
+		opts.ProtocolVersion = "2024-11-05"
+		opts.Streaming = true
+		opts.StreamHandler = func(*client.SamplingResponse) error { return nil }
+
+		err := opts.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "streaming is only supported in protocol version 2025-03-26")
+	})
+
+	t.Run("invalid chunk size", func(t *testing.T) {
+		messages := []client.SamplingMessage{
+			client.CreateTextMessage("user", "Hello"),
+		}
+		prefs := client.SamplingModelPreferences{}
+
+		opts := client.NewSamplingOptions(messages, prefs)
+		opts.ProtocolVersion = "2025-03-26"
+		opts.Streaming = true
+		opts.StreamHandler = func(*client.SamplingResponse) error { return nil }
+		opts.ChunkSize = 5 // Too small
+
+		err := opts.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "chunk size must be at least 10 characters")
+	})
 }
 
-// TestSamplingRequest tests the SamplingRequest functionality
-func TestSamplingRequest(t *testing.T) {
-	// Create test messages
+func TestSamplingOptions_FluentAPI(t *testing.T) {
 	messages := []client.SamplingMessage{
-		client.CreateTextSamplingMessage("user", "Hello"),
-		client.CreateTextSamplingMessage("assistant", "Hi there!"),
+		client.CreateTextMessage("user", "Hello"),
+	}
+	prefs := client.SamplingModelPreferences{}
+
+	opts := client.NewSamplingOptions(messages, prefs).
+		WithSystemPrompt("You are helpful").
+		WithMaxTokens(100).
+		WithTimeout(30 * time.Second).
+		WithContext(context.Background()).
+		WithChunkSize(50)
+
+	assert.Equal(t, "You are helpful", opts.SystemPrompt)
+	assert.Equal(t, 100, opts.MaxTokens)
+	assert.Equal(t, 30*time.Second, opts.Timeout)
+	assert.NotNil(t, opts.Context)
+	assert.Equal(t, 50, opts.ChunkSize)
+}
+
+func TestSamplingOptions_StreamingConfiguration(t *testing.T) {
+	messages := []client.SamplingMessage{
+		client.CreateTextMessage("user", "Tell me a story"),
+	}
+	prefs := client.SamplingModelPreferences{}
+
+	var receivedChunks []*client.SamplingResponse
+	streamHandler := func(chunk *client.SamplingResponse) error {
+		receivedChunks = append(receivedChunks, chunk)
+		return nil
 	}
 
-	// Create model preferences
-	prefs := client.SamplingModelPreferences{
-		Hints: []client.SamplingModelHint{
-			{Name: "gpt-4"},
+	opts := client.NewSamplingOptions(messages, prefs).
+		WithStreaming(streamHandler).
+		WithChunkSize(100)
+
+	assert.True(t, opts.Streaming)
+	assert.NotNil(t, opts.StreamHandler)
+	assert.Equal(t, 100, opts.ChunkSize)
+
+	// Test the handler
+	testChunk := &client.SamplingResponse{
+		Role: "assistant",
+		Content: client.SamplingMessageContent{
+			Type: "text",
+			Text: "Once upon a time...",
 		},
+		IsComplete: false,
+		ChunkIndex: 0,
 	}
 
-	// Create a sampling request
-	req := client.NewSamplingRequest(messages, prefs)
-	req.SystemPrompt = "You are a helpful assistant"
-	req.MaxTokens = 150
+	err := opts.StreamHandler(testChunk)
+	require.NoError(t, err)
+	assert.Len(t, receivedChunks, 1)
+	assert.Equal(t, testChunk, receivedChunks[0])
+}
 
-	// Test validation
-	if err := req.Validate(); err != nil {
-		t.Errorf("Valid sampling request failed validation: %v", err)
+func TestSamplingHelperFunctions(t *testing.T) {
+	t.Run("CreateTextMessage", func(t *testing.T) {
+		msg := client.CreateTextMessage("user", "Hello world")
+		assert.Equal(t, "user", msg.Role)
+		assert.Equal(t, "text", msg.Content.Type)
+		assert.Equal(t, "Hello world", msg.Content.Text)
+	})
+
+	t.Run("CreateImageMessage", func(t *testing.T) {
+		msg := client.CreateImageMessage("user", "base64-data", "image/jpeg")
+		assert.Equal(t, "user", msg.Role)
+		assert.Equal(t, "image", msg.Content.Type)
+		assert.Equal(t, "base64-data", msg.Content.Data)
+		assert.Equal(t, "image/jpeg", msg.Content.MimeType)
+	})
+
+	t.Run("CreateAudioMessage", func(t *testing.T) {
+		msg := client.CreateAudioMessage("user", "base64-audio", "audio/wav")
+		assert.Equal(t, "user", msg.Role)
+		assert.Equal(t, "audio", msg.Content.Type)
+		assert.Equal(t, "base64-audio", msg.Content.Data)
+		assert.Equal(t, "audio/wav", msg.Content.MimeType)
+	})
+
+	t.Run("NewSamplingOptions", func(t *testing.T) {
+		messages := []client.SamplingMessage{
+			client.CreateTextMessage("user", "test"),
+		}
+		prefs := client.SamplingModelPreferences{}
+
+		opts := client.NewSamplingOptions(messages, prefs)
+		assert.NotNil(t, opts)
+		assert.Equal(t, messages, opts.Messages)
+		assert.Equal(t, prefs, opts.ModelPreferences)
+
+		// Check defaults
+		assert.Equal(t, 30*time.Second, opts.Timeout)
+		assert.Equal(t, 3, opts.MaxRetries)
+		assert.Equal(t, 1*time.Second, opts.RetryInterval)
+		assert.Equal(t, 2.0, opts.RetryMultiplier)
+		assert.Equal(t, 10*time.Second, opts.MaxInterval)
+		assert.True(t, opts.StopOnComplete)
+	})
+}
+
+func TestSamplingModelPreferences(t *testing.T) {
+	t.Run("empty preferences", func(t *testing.T) {
+		prefs := client.SamplingModelPreferences{}
+		assert.Empty(t, prefs.Hints)
+		assert.Nil(t, prefs.CostPriority)
+		assert.Nil(t, prefs.SpeedPriority)
+		assert.Nil(t, prefs.IntelligencePriority)
+	})
+
+	t.Run("preferences with hints and priorities", func(t *testing.T) {
+		costPriority := 0.3
+		speedPriority := 0.8
+		intelligencePriority := 0.5
+
+		prefs := client.SamplingModelPreferences{
+			Hints: []client.SamplingModelHint{
+				{Name: "claude-3-sonnet"},
+				{Name: "claude"},
+			},
+			CostPriority:         &costPriority,
+			SpeedPriority:        &speedPriority,
+			IntelligencePriority: &intelligencePriority,
+		}
+
+		assert.Len(t, prefs.Hints, 2)
+		assert.Equal(t, "claude-3-sonnet", prefs.Hints[0].Name)
+		assert.Equal(t, "claude", prefs.Hints[1].Name)
+		assert.Equal(t, 0.3, *prefs.CostPriority)
+		assert.Equal(t, 0.8, *prefs.SpeedPriority)
+		assert.Equal(t, 0.5, *prefs.IntelligencePriority)
+	})
+}
+
+func TestStreamingSupportDetection(t *testing.T) {
+	testCases := []struct {
+		version   string
+		supported bool
+	}{
+		{"draft", false},
+		{"2024-11-05", false},
+		{"2025-03-26", true},
+		{"invalid", false},
 	}
 
-	// Test with context
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
+	for _, tc := range testCases {
+		t.Run(tc.version, func(t *testing.T) {
+			// Test by trying to validate streaming options
+			messages := []client.SamplingMessage{
+				client.CreateTextMessage("user", "test"),
+			}
+			opts := client.NewSamplingOptions(messages, client.SamplingModelPreferences{})
+			opts.ProtocolVersion = tc.version
+			opts.Streaming = true
+			opts.StreamHandler = func(*client.SamplingResponse) error { return nil }
 
-	if req.Context != ctx {
-		t.Error("Context was not set correctly")
-	}
-
-	// Test with timeout
-	req = req.WithTimeout(10 * time.Second)
-	if req.Timeout != 10*time.Second {
-		t.Errorf("Expected timeout 10s, got %v", req.Timeout)
-	}
-
-	// Test building request
-	requestJSON, err := req.BuildCreateMessageRequest(123)
-	if err != nil {
-		t.Errorf("Failed to build request: %v", err)
-	}
-
-	// Parse the request to verify structure
-	var parsedRequest map[string]interface{}
-	if err := json.Unmarshal(requestJSON, &parsedRequest); err != nil {
-		t.Errorf("Failed to parse built request: %v", err)
-	}
-
-	// Verify request structure
-	if parsedRequest["jsonrpc"] != "2.0" {
-		t.Errorf("Expected jsonrpc '2.0', got '%v'", parsedRequest["jsonrpc"])
-	}
-	if parsedRequest["method"] != "sampling/createMessage" {
-		t.Errorf("Expected method 'sampling/createMessage', got '%v'", parsedRequest["method"])
-	}
-	if parsedRequest["id"] != float64(123) {
-		t.Errorf("Expected id 123, got %v", parsedRequest["id"])
-	}
-
-	// Verify params
-	params, ok := parsedRequest["params"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected params to be an object")
-	}
-
-	if params["systemPrompt"] != "You are a helpful assistant" {
-		t.Errorf("Expected system prompt 'You are a helpful assistant', got '%v'", params["systemPrompt"])
-	}
-	if params["maxTokens"] != float64(150) {
-		t.Errorf("Expected max tokens 150, got %v", params["maxTokens"])
+			err := opts.Validate()
+			if tc.supported {
+				assert.NoError(t, err, "streaming should be supported in %s", tc.version)
+			} else {
+				assert.Error(t, err, "streaming should not be supported in %s", tc.version)
+				if err != nil {
+					assert.Contains(t, err.Error(), "streaming is only supported in protocol version 2025-03-26")
+				}
+			}
+		})
 	}
 }
