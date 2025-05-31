@@ -1,21 +1,29 @@
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 dev-debug.log
-.roo*
-.task*
-.wind*
-.env*
 
+# Development configuration files (kept locally)
+.roo/
+.roomodes
+.taskmasterconfig
+.windsurfrules
 
-# Dependency directories
-node_modules/
+# Task files and development artifacts
+tasks.json
+tasks/
+tasks~/
+PRD.md
 
 # Environment variables
 .env
+.env*
+
+# Dependency directories
+node_modules/
 
 # Editor directories and files
 .idea
@@ -29,11 +37,6 @@ node_modules/
 # OS specific
 .DS_Store
 
-# Task files
-tasks.json
-tasks/
-tasks*/
-
 # Compiled Go binaries
 /examples/minimal/client/client
 /examples/minimal/server/server
@@ -43,7 +46,5 @@ tasks*/
 /examples/**/*.dll
 /examples/**/*.so
 
-PRD.md
-
 # Specification files (kept locally but not in repo)
-/specification/
+specification/
