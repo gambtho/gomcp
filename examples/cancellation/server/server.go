@@ -21,7 +21,7 @@ func longRunningTool(ctx *server.Context, args struct {
 		return "", fmt.Errorf("duration must be positive")
 	}
 
-	fmt.Printf("Starting long-running task for %d seconds...\n", args.Duration)
+	ctx.Logger.Info("Starting long-running task", "duration", args.Duration)
 
 	// Register for cancellation
 	cancelCh := ctx.RegisterForCancellation()
@@ -32,25 +32,25 @@ func longRunningTool(ctx *server.Context, args struct {
 
 		// Method 1: Using the convenience method
 		if err := ctx.CheckCancellation(); err != nil {
-			fmt.Println("Task cancelled (using CheckCancellation)")
+			ctx.Logger.Info("Task cancelled (using CheckCancellation)")
 			return "", fmt.Errorf("task cancelled after %d seconds", i)
 		}
 
 		// Method 2: Using the cancelCh directly
 		select {
 		case <-cancelCh:
-			fmt.Println("Task cancelled (using cancel channel)")
+			ctx.Logger.Info("Task cancelled (using cancel channel)")
 			return "", fmt.Errorf("task cancelled after %d seconds", i)
 		default:
 			// Not cancelled, continue work
 		}
 
 		// Do some "work"
-		fmt.Printf("Working... %d/%d seconds completed\n", i+1, args.Duration)
+		ctx.Logger.Info("Working...", "progress", fmt.Sprintf("%d/%d seconds completed", i+1, args.Duration))
 		time.Sleep(1 * time.Second)
 	}
 
-	fmt.Println("Task completed successfully!")
+	ctx.Logger.Info("Task completed successfully!")
 	return fmt.Sprintf("Completed task that took %d seconds", args.Duration), nil
 }
 
@@ -63,7 +63,7 @@ func sendCancellation(srv server.Server, requestID string) {
 	time.Sleep(2 * time.Second)
 
 	// Send the cancellation notification
-	fmt.Println("Sending cancellation notification...")
+	srv.Logger().Info("Sending cancellation notification...")
 	err := s.SendCancelledNotification(requestID, "User requested cancellation")
 	if err != nil {
 		fmt.Printf("Error sending cancellation: %v\n", err)
@@ -109,14 +109,14 @@ func main() {
 	// Print the response
 	var response map[string]interface{}
 	json.Unmarshal(responseBytes, &response)
-	fmt.Println("\nResponse received:")
+	impl.Logger().Info("Response received:")
 	prettyJSON, _ := json.MarshalIndent(response, "", "  ")
-	fmt.Println(string(prettyJSON))
+	impl.Logger().Info(string(prettyJSON))
 
 	// Also demonstrate cancellation in the real server
-	fmt.Println("\nStarting real server example...")
+	impl.Logger().Info("Starting real server example...")
 	if err := srv.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
+		impl.Logger().Error("Server error", "error", err)
 		os.Exit(1)
 	}
 }

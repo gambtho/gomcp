@@ -767,3 +767,28 @@ func (c *Context) ValidateToolArgs(toolName string) (interface{}, error) {
 	// For now, return the raw arguments
 	return c.Request.ToolArgs, nil
 }
+
+// GetRoots returns all registered root paths from the server
+func (c *Context) GetRoots() []string {
+	if c.server != nil {
+		return c.server.GetRoots()
+	}
+	return []string{}
+}
+
+// GetPrimaryRoot returns the first registered root path, if any
+func (c *Context) GetPrimaryRoot() string {
+	roots := c.GetRoots()
+	if len(roots) > 0 {
+		return roots[0]
+	}
+	return ""
+}
+
+// InRoots checks if a path is within any registered root
+func (c *Context) InRoots(path string) bool {
+	if c.server != nil {
+		return c.server.IsPathInRoots(path)
+	}
+	return false
+}

@@ -67,6 +67,40 @@ server.Prompt("promptName", "description", template)
 server.Run()
 ```
 
+## Workspace Roots Integration
+
+GOMCP servers automatically integrate with the MCP roots protocol to provide workspace context to tools. This eliminates the need for manual project_root parameters.
+
+### Context API
+
+Tools receive workspace information through the context:
+
+```go
+func MyTool(ctx *server.Context, args struct{}) (interface{}, error) {
+    // Get all workspace roots
+    roots := ctx.GetRoots()
+    
+    // Get primary workspace root
+    primaryRoot := ctx.GetPrimaryRoot()
+    
+    // Check if path is within workspace
+    isInWorkspace := ctx.InRoots("/path/to/file")
+    
+    return map[string]interface{}{
+        "primary_root": primaryRoot,
+        "all_roots": roots,
+        "in_workspace": isInWorkspace,
+    }, nil
+}
+```
+
+### Features
+
+- Automatic extraction of workspace roots from MCP client initialization
+- Thread-safe access to workspace context
+- Convenient helper methods for path validation
+- No manual configuration required
+
 ## Generating Documentation
 
 API documentation is automatically generated from source code comments. For local documentation:

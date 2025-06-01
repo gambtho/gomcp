@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -699,12 +700,17 @@ func (s *serverImpl) ProcessInitialize(ctx *Context) (interface{}, error) {
 	// Store the validated protocol version without locking
 	s.protocolVersion = protocolVersion
 
+	// Extract and add workspace roots from client initialization
+	workspaceRoots := extractWorkspaceRoots(ctx.Request.Params)
+	if len(workspaceRoots) > 0 {
+		s.roots = append(s.roots, workspaceRoots...)
+		s.logger.Debug("added workspace roots from client", "roots", workspaceRoots)
+	}
+
 	// Update the transport with the negotiated protocol version
-	s.mu.RLock()
 	if s.transport != nil {
 		s.transport.SetProtocolVersion(protocolVersion)
 	}
-	s.mu.RUnlock()
 
 	// Determine sampling capabilities based on protocol version
 	samplingCaps := DetectClientCapabilities(protocolVersion)
@@ -1015,6 +1021,81 @@ func (s *serverImpl) handleInitializedNotification() {
 			s.sendCapabilityNotification("prompts")
 		}
 	}()
+}
+
+// extractWorkspaceRoots extracts workspace root paths from initialization parameters
+func extractWorkspaceRoots(params interface{}) []string {
+	if params == nil {
+		return nil
+	}
+
+	// Handle both parsed maps and JSON byte slices
+	var paramsMap map[string]interface{}
+
+	switch p := params.(type) {
+	case map[string]interface{}:
+		paramsMap = p
+	case json.RawMessage:
+		// Parse JSON bytes
+		if err := json.Unmarshal(p, &paramsMap); err != nil {
+			return nil
+		}
+	case []byte:
+		// Parse JSON bytes
+		if err := json.Unmarshal(p, &paramsMap); err != nil {
+			return nil
+		}
+	default:
+		return nil
+	}
+
+	// Look for clientInfo.roots according to MCP spec
+	clientInfo, ok := paramsMap["clientInfo"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	roots, ok := clientInfo["roots"].([]interface{})
+	if !ok {
+		return nil
+	}
+
+	var result []string
+	for _, root := range roots {
+		if rootMap, ok := root.(map[string]interface{}); ok {
+			if uri, ok := rootMap["uri"].(string); ok {
+				// Convert file:// URIs to file paths
+				if path := uriToPath(uri); path != "" {
+					result = append(result, path)
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// uriToPath converts a file:// URI to a local file path
+func uriToPath(uri string) string {
+	if uri == "" {
+		return ""
+	}
+
+	// Handle file:// URIs - must start with file:/// (three slashes for absolute paths)
+	if len(uri) > 8 && uri[:8] == "file:///" {
+		path := uri[7:] // Remove "file://" prefix, keeping the leading slash
+
+		// Handle URL decoding for special characters like %20 (space), %2B (+), etc.
+		if decoded, err := url.PathUnescape(path); err == nil {
+			return decoded
+		}
+
+		// If decoding fails, return the original path
+		return path
+	}
+
+	// Only file:/// URIs are supported (not file:// with server names)
+	return ""
 }
 
 // ListTools returns a list of all registered tools.
