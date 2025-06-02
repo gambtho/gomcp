@@ -227,6 +227,19 @@ type Client interface {
 	// GetSamplingHandler returns the currently registered sampling handler.
 	GetSamplingHandler() SamplingHandler
 
+	// Events returns the events subject for subscribing to client events.
+	//
+	// This provides access to the event system for monitoring client lifecycle,
+	// errors, and other significant events. Subscribers can listen for specific
+	// event types such as initialization, connection changes, and errors.
+	//
+	// Example:
+	//  events := client.Events()
+	//  events.Subscribe(events.TopicClientError, func(event events.ClientErrorEvent) {
+	//      log.Printf("Client error: %s", event.Error)
+	//  })
+	Events() *events.Subject
+
 	// RequestSampling initiates a sampling request to the server.
 	//
 	// This is the unified method for all sampling operations, supporting both
@@ -675,4 +688,9 @@ func (c *clientImpl) sendBatchRequestWithTimeout(requests []map[string]interface
 	}
 
 	return result, nil
+}
+
+// Events returns the events subject for subscribing to client events.
+func (c *clientImpl) Events() *events.Subject {
+	return c.events
 }

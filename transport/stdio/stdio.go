@@ -6,6 +6,7 @@ package stdio
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -14,6 +15,48 @@ import (
 
 	"github.com/localrivet/gomcp/transport"
 )
+
+// isValidJSONRPC checks if a message appears to be a valid JSON-RPC message.
+// This provides anti-fragile behavior by filtering out log messages and other noise.
+func isValidJSONRPC(data []byte) bool {
+	// Quick check: must be valid JSON
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false
+	}
+
+	// Must have jsonrpc field with value "2.0"
+	jsonrpc, ok := raw["jsonrpc"]
+	if !ok {
+		return false
+	}
+	if jsonrpcStr, ok := jsonrpc.(string); !ok || jsonrpcStr != "2.0" {
+		return false
+	}
+
+	// Must be one of: request (has method + id), response (has id + result/error), or notification (has method, no id)
+	_, hasMethod := raw["method"]
+	_, hasID := raw["id"]
+	_, hasResult := raw["result"]
+	_, hasError := raw["error"]
+
+	// Request: method + id
+	if hasMethod && hasID {
+		return true
+	}
+
+	// Response: id + (result or error)
+	if hasID && (hasResult || hasError) {
+		return true
+	}
+
+	// Notification: method, no id
+	if hasMethod && !hasID {
+		return true
+	}
+
+	return false
+}
 
 // Transport implements the transport.Transport interface for Standard I/O.
 type Transport struct {
@@ -137,6 +180,19 @@ func (t *Transport) readLoop() {
 
 			// Skip empty lines
 			if line == "" {
+				continue
+			}
+
+			// Anti-fragile filtering: only process valid JSON-RPC messages
+			if !isValidJSONRPC([]byte(line)) {
+				// Log filtered message if debug enabled
+				if debugHandler := t.GetDebugHandler(); debugHandler != nil {
+					if len(line) > 100 {
+						debugHandler("stdio transport filtered non-JSON-RPC: " + line[:100] + "...")
+					} else {
+						debugHandler("stdio transport filtered non-JSON-RPC: " + line)
+					}
+				}
 				continue
 			}
 

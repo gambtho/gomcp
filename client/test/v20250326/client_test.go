@@ -262,3 +262,14 @@ func TestRoots_v20250326(t *testing.T) {
 		t.Errorf("Remove root params not as expected: %v", removeParams)
 	}
 }
+
+// TestClientEvents_v20250326 tests that the Events() method returns the events subject
+func TestClientEvents_v20250326(t *testing.T) {
+	c, _ := setupTest(t)
+
+	// Test that Events() method returns a non-nil events subject
+	events := c.Events()
+	if events == nil {
+		t.Fatal("Expected Events() to return non-nil events subject")
+	}
+}

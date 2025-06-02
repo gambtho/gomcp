@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/localrivet/gomcp/transport"
 )
 
 func TestNewTransport(t *testing.T) {
@@ -91,8 +93,8 @@ func TestReceive(t *testing.T) {
 }
 
 func TestReadLoop(t *testing.T) {
-	// Create transport with mock IO
-	input := "test message\n"
+	// Create transport with mock IO - use valid JSON-RPC message
+	input := `{"jsonrpc": "2.0", "method": "ping", "id": 1}` + "\n"
 	in := strings.NewReader(input)
 	out := new(bytes.Buffer)
 	transport := NewTransportWithIO(in, out)
@@ -120,7 +122,7 @@ func TestReadLoop(t *testing.T) {
 	// Wait for the message to be processed via channel
 	select {
 	case receivedMsg := <-resultCh:
-		expected := "test message"
+		expected := `{"jsonrpc": "2.0", "method": "ping", "id": 1}`
 		if receivedMsg != expected {
 			t.Errorf("Expected message %q, got %q", expected, receivedMsg)
 		}
@@ -131,7 +133,7 @@ func TestReadLoop(t *testing.T) {
 	// Wait for the output to be captured
 	select {
 	case outputMsg := <-outputCh:
-		expected := "test message\n"
+		expected := `{"jsonrpc": "2.0", "method": "ping", "id": 1}` + "\n"
 		if outputMsg != expected {
 			t.Errorf("Expected output %q, got %q", expected, outputMsg)
 		}
@@ -203,23 +205,18 @@ func TestReadLoopWithEOF(t *testing.T) {
 		t.Errorf("Unexpected error on Start: %v", err)
 	}
 
-	// Monitor the transport's done channel to detect when readLoop exits due to EOF
+	// Use a goroutine to monitor the transport behavior
 	go func() {
-		// Wait for the transport's done channel to be closed or a reasonable timeout
-		select {
-		case <-transport.done:
-			close(doneCh)
-		case <-time.After(200 * time.Millisecond):
-			close(doneCh)
-		}
+		defer close(doneCh)
+		time.Sleep(200 * time.Millisecond) // Allow enough time for the transport to process EOF
 	}()
 
-	// Wait for EOF to be detected
+	// Wait for EOF processing to complete or timeout
 	select {
 	case <-doneCh:
-		// EOF was detected and readLoop exited
+		// EOF was processed successfully
 	case <-time.After(1 * time.Second):
-		t.Error("Timeout waiting for EOF to be detected")
+		t.Error("Timeout waiting for EOF to be processed")
 	}
 
 	// Clean up
@@ -229,13 +226,238 @@ func TestReadLoopWithEOF(t *testing.T) {
 		}
 	}()
 
-	// Note: We don't access transport.readEOF anymore to avoid race conditions
-	// The test validates that EOF handling works by monitoring the done channel
+	// No output should be produced since there was no actual message
+	if out.String() != "" {
+		t.Errorf("Expected empty output, got %q", out.String())
+	}
 }
 
-// eofReader is a mock reader that always returns EOF
 type eofReader struct{}
 
 func (r *eofReader) Read(p []byte) (n int, err error) {
 	return 0, io.EOF
+}
+
+func TestIsValidJSONRPC(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		// Valid JSON-RPC messages
+		{
+			name:     "valid request",
+			input:    `{"jsonrpc": "2.0", "method": "ping", "id": 1}`,
+			expected: true,
+		},
+		{
+			name:     "valid request with params",
+			input:    `{"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": "abc123"}`,
+			expected: true,
+		},
+		{
+			name:     "valid response with result",
+			input:    `{"jsonrpc": "2.0", "result": {"status": "ok"}, "id": 1}`,
+			expected: true,
+		},
+		{
+			name:     "valid response with error",
+			input:    `{"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid Request"}, "id": 1}`,
+			expected: true,
+		},
+		{
+			name:     "valid notification",
+			input:    `{"jsonrpc": "2.0", "method": "notifications/progress"}`,
+			expected: true,
+		},
+		{
+			name:     "valid notification with params",
+			input:    `{"jsonrpc": "2.0", "method": "notifications/progress", "params": {"progress": 50}}`,
+			expected: true,
+		},
+
+		// Invalid JSON-RPC messages
+		{
+			name:     "invalid JSON",
+			input:    `{invalid json}`,
+			expected: false,
+		},
+		{
+			name:     "missing jsonrpc field",
+			input:    `{"method": "ping", "id": 1}`,
+			expected: false,
+		},
+		{
+			name:     "wrong jsonrpc version",
+			input:    `{"jsonrpc": "1.0", "method": "ping", "id": 1}`,
+			expected: false,
+		},
+		{
+			name:     "missing method and result/error",
+			input:    `{"jsonrpc": "2.0", "id": 1}`,
+			expected: false,
+		},
+		{
+			name:     "has id but no method or result/error",
+			input:    `{"jsonrpc": "2.0", "id": 1, "params": {}}`,
+			expected: false,
+		},
+		{
+			name:     "log message",
+			input:    `[INFO] Server started on port 8080`,
+			expected: false,
+		},
+		{
+			name:     "debug output",
+			input:    `DEBUG: Processing request...`,
+			expected: false,
+		},
+		{
+			name:     "empty object",
+			input:    `{}`,
+			expected: false,
+		},
+		{
+			name:     "array instead of object",
+			input:    `[1, 2, 3]`,
+			expected: false,
+		},
+		{
+			name:     "string",
+			input:    `"hello world"`,
+			expected: false,
+		},
+		{
+			name:     "number",
+			input:    `42`,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isValidJSONRPC([]byte(tt.input))
+			if result != tt.expected {
+				t.Errorf("isValidJSONRPC(%q) = %v, expected %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestTransportAntiFragileFiltering(t *testing.T) {
+	// Create buffers for input and output
+	input := &bytes.Buffer{}
+	output := &bytes.Buffer{}
+
+	// Create transport with custom IO
+	transport := NewTransportWithIO(input, output)
+
+	// Track debug messages
+	debugMessages := []string{}
+	transport.SetDebugHandler(func(msg string) {
+		debugMessages = append(debugMessages, msg)
+	})
+
+	// Set up a simple message handler that echoes back
+	transport.SetMessageHandler(func(msg []byte) ([]byte, error) {
+		return []byte(`{"jsonrpc": "2.0", "result": "pong", "id": 1}`), nil
+	})
+
+	// Initialize and start the transport
+	err := transport.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize transport: %v", err)
+	}
+
+	err = transport.Start()
+	if err != nil {
+		t.Fatalf("Failed to start transport: %v", err)
+	}
+	defer transport.Stop()
+
+	// Test data: mix of valid JSON-RPC and noise
+	testMessages := []string{
+		`[INFO] Server starting up...`,                                                   // Should be filtered
+		`{"jsonrpc": "2.0", "method": "ping", "id": 1}`,                                  // Should be processed
+		`DEBUG: Connection established`,                                                  // Should be filtered
+		`{"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": 2}`,              // Should be processed
+		`Error: Failed to connect to database`,                                           // Should be filtered
+		`{"jsonrpc": "2.0", "result": {"tools": []}, "id": 2}`,                           // Should be processed (response)
+		`[WARN] Memory usage high`,                                                       // Should be filtered
+		`{"jsonrpc": "2.0", "method": "notifications/progress", "params": {"value": 1}}`, // Should be processed (notification)
+		`{incomplete json`,                                                               // Should be filtered
+		``,                                                                               // Empty line, should be skipped
+	}
+
+	// Send all test messages
+	for _, msg := range testMessages {
+		input.WriteString(msg + "\n")
+	}
+
+	// Give some time for processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Check output - should only contain responses to valid JSON-RPC messages
+	outputLines := strings.Split(strings.TrimSpace(output.String()), "\n")
+
+	// We expect 4 responses: 2 requests + 1 response + 1 notification = 4 valid JSON-RPC messages
+	expectedResponses := 4
+	actualResponses := 0
+	for _, line := range outputLines {
+		if strings.TrimSpace(line) != "" {
+			actualResponses++
+		}
+	}
+
+	if actualResponses != expectedResponses {
+		t.Errorf("Expected %d responses, got %d. Output: %q", expectedResponses, actualResponses, output.String())
+	}
+
+	// Check debug messages - should contain filtered messages
+	filteredCount := 0
+	processedCount := 0
+	for _, debugMsg := range debugMessages {
+		if strings.Contains(debugMsg, "filtered non-JSON-RPC") {
+			filteredCount++
+		}
+		if strings.Contains(debugMsg, "received:") {
+			processedCount++
+		}
+	}
+
+	// We expect 5 filtered messages (log messages, debug output, error, warning, incomplete JSON)
+	expectedFiltered := 5
+	if filteredCount != expectedFiltered {
+		t.Errorf("Expected %d filtered messages, got %d. Debug messages: %v", expectedFiltered, filteredCount, debugMessages)
+	}
+
+	// We expect 4 processed messages (2 requests + 1 response + 1 notification)
+	expectedProcessed := 4
+	if processedCount != expectedProcessed {
+		t.Errorf("Expected %d processed messages, got %d. Debug messages: %v", expectedProcessed, processedCount, debugMessages)
+	}
+}
+
+func TestSetNewline(t *testing.T) {
+	input := &bytes.Buffer{}
+	output := &bytes.Buffer{}
+
+	transport := NewTransportWithIO(input, output)
+
+	// Test setting newline to false
+	transport.SetNewline(false)
+	if transport.newline {
+		t.Error("Expected newline to be false after SetNewline(false)")
+	}
+
+	// Test setting newline to true
+	transport.SetNewline(true)
+	if !transport.newline {
+		t.Error("Expected newline to be true after SetNewline(true)")
+	}
+}
+
+func TestTransportInterface(t *testing.T) {
+	// Ensure our Transport implements the transport.Transport interface
+	var _ transport.Transport = &Transport{}
 }

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/localrivet/gomcp/client"
 	"github.com/localrivet/gomcp/events"
 	"github.com/localrivet/gomcp/server"
 )
@@ -102,6 +103,31 @@ type RequestFailedEvent struct {
 	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
+// Client-side event types
+type ClientInitializedEvent struct {
+	ClientName      string         `json:"clientName"`
+	ServerURL       string         `json:"serverUrl"`
+	ProtocolVersion string         `json:"protocolVersion"`
+	InitializedAt   time.Time      `json:"initializedAt"`
+	Capabilities    map[string]any `json:"capabilities"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
+}
+
+type ClientConnectionEvent struct {
+	Status    string         `json:"status"`
+	ServerURL string         `json:"serverUrl"`
+	Timestamp time.Time      `json:"timestamp"`
+	Error     string         `json:"error,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+}
+
+type ClientErrorEvent struct {
+	Operation  string         `json:"operation"`
+	Error      string         `json:"error"`
+	OccurredAt time.Time      `json:"occurredAt"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+}
+
 func main() {
 	// Create a server with events
 	srv := server.NewServer("events-demo")
@@ -130,10 +156,16 @@ func main() {
 	logger.Info("  💭 prompt execution", "topic", events.TopicPromptExecuted)
 	logger.Info("  ❌ request failures", "topic", events.TopicRequestFailed)
 	logger.Info("")
-	logger.Info("🧪 Testing Event System:")
+	logger.Info("🧪 Testing Server Event System:")
 
-	// Demonstrate event publishing with some test events
+	// Demonstrate server event publishing with some test events
 	demonstrateEvents(srv, logger)
+
+	logger.Info("")
+	logger.Info("🧪 Testing Client Event System:")
+
+	// Demonstrate client events
+	demonstrateClientEvents(logger)
 
 	logger.Info("")
 	logger.Info("✅ Events integration example complete!")
@@ -142,6 +174,10 @@ func main() {
 	logger.Info("   - Tools and resources are registered")
 	logger.Info("   - Clients execute tools, access resources, or use prompts")
 	logger.Info("   - Errors occur during request processing")
+	logger.Info("💡 In a real MCP client, events fire when:")
+	logger.Info("   - Client initializes and connects to servers")
+	logger.Info("   - Connection status changes")
+	logger.Info("   - Errors occur during client operations")
 }
 
 func setupEventSubscriptions(srv server.Server, logger *slog.Logger) {
@@ -421,4 +457,89 @@ func demonstrateEvents(srv server.Server, logger *slog.Logger) {
 
 	// Give events time to process
 	time.Sleep(50 * time.Millisecond)
+}
+
+func demonstrateClientEvents(logger *slog.Logger) {
+	logger.Info("📢 Demonstrating client events system...")
+
+	// Create a simple client to demonstrate client-side events
+	c, err := client.NewClient("test-client", client.WithStdio())
+	if err != nil {
+		logger.Info("Failed to create client", "error", err)
+		return
+	}
+
+	// Get the client's events subject
+	clientEvents := c.Events()
+
+	// Subscribe to client events (if the topics exist, otherwise demonstrate with custom topics)
+	events.Subscribe[ClientInitializedEvent](clientEvents, "client.initialized",
+		func(ctx context.Context, evt ClientInitializedEvent) error {
+			logger.Info("🚀 Client initialized",
+				"clientName", evt.ClientName,
+				"serverURL", evt.ServerURL,
+				"protocolVersion", evt.ProtocolVersion)
+			return nil
+		})
+
+	events.Subscribe[ClientConnectionEvent](clientEvents, "client.connection",
+		func(ctx context.Context, evt ClientConnectionEvent) error {
+			logger.Info("🔌 Client connection status",
+				"status", evt.Status,
+				"serverURL", evt.ServerURL)
+			return nil
+		})
+
+	events.Subscribe[ClientErrorEvent](clientEvents, "client.error",
+		func(ctx context.Context, evt ClientErrorEvent) error {
+			logger.Info("❌ Client error",
+				"operation", evt.Operation,
+				"error", evt.Error)
+			return nil
+		})
+
+	// Publish test client events
+	testClientEvent := ClientInitializedEvent{
+		ClientName:      "test-client",
+		ServerURL:       "stdio://server",
+		ProtocolVersion: "2025-03-26",
+		InitializedAt:   time.Now(),
+		Capabilities:    map[string]any{"supports": []string{"greet", "calculate"}},
+		Metadata:        make(map[string]any),
+	}
+
+	if err := events.Publish[ClientInitializedEvent](clientEvents, "client.initialized", testClientEvent); err != nil {
+		logger.Info("Failed to publish client initialized event", "error", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	testClientConnectionEvent := ClientConnectionEvent{
+		Status:    "connected",
+		ServerURL: "stdio://server",
+		Timestamp: time.Now(),
+		Metadata:  make(map[string]any),
+	}
+
+	if err := events.Publish[ClientConnectionEvent](clientEvents, "client.connection", testClientConnectionEvent); err != nil {
+		logger.Info("Failed to publish client connection event", "error", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	testClientErrorEvent := ClientErrorEvent{
+		Operation:  "tool_call",
+		Error:      "Demonstration client error",
+		OccurredAt: time.Now(),
+		Metadata:   make(map[string]any),
+	}
+
+	if err := events.Publish[ClientErrorEvent](clientEvents, "client.error", testClientErrorEvent); err != nil {
+		logger.Info("Failed to publish client error event", "error", err)
+	}
+
+	// Give events time to process
+	time.Sleep(50 * time.Millisecond)
+
+	logger.Info("✅ Client events demonstration complete")
 }
