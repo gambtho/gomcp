@@ -46,6 +46,9 @@ type Context struct {
 
 	// Metadata for storing contextual information during request processing
 	Metadata map[string]interface{}
+
+	// this is a session id that is used to track the session
+	Session *ClientSession
 }
 
 // Request represents an incoming JSON-RPC 2.0 request.
@@ -113,6 +116,7 @@ func NewContext(ctx context.Context, requestBytes []byte, server *serverImpl) (*
 		server:       server,
 		Logger:       server.logger,
 		Metadata:     make(map[string]interface{}),
+		Session:      server.defaultSession, // ✅ Attach the current session
 	}
 
 	// Parse the request

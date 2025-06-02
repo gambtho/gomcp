@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -414,6 +415,10 @@ type serverImpl struct {
 
 	// events provides the event system for server lifecycle events
 	events *events.Subject
+
+	// needsRootFetch indicates whether we should fetch workspace roots from the client
+	// after initialization is complete (similar to how we queue capability notifications)
+	needsRootFetch bool
 }
 
 // CapabilityCache manages the caching and change tracking of server capabilities
@@ -700,26 +705,68 @@ func (s *serverImpl) ProcessInitialize(ctx *Context) (interface{}, error) {
 	// Store the validated protocol version without locking
 	s.protocolVersion = protocolVersion
 
-	// Extract and add workspace roots from client initialization
-	workspaceRoots := extractWorkspaceRoots(ctx.Request.Params)
-	if len(workspaceRoots) > 0 {
-		s.roots = append(s.roots, workspaceRoots...)
-		s.logger.Debug("added workspace roots from client", "roots", workspaceRoots)
-	}
-
 	// Update the transport with the negotiated protocol version
 	if s.transport != nil {
 		s.transport.SetProtocolVersion(protocolVersion)
 	}
 
+	// Extract client session data based on transport type (MCP compliant)
+	var clientEnv map[string]string
+
+	// Check if we're using stdio transport
+	if _, isStdio := s.transport.(*stdio.Transport); isStdio {
+		// For stdio transport, extract from environment variables
+		clientEnv = extractStdioSessionData()
+	} else {
+		// For HTTP-based transports, get environment from headers
+		clientEnv = extractHTTPSessionData(ctx)
+	}
+
+	// Extract initial workspace roots from clientInfo if provided
+	var initialRoots []string
+	var params map[string]interface{}
+	if err := json.Unmarshal(ctx.Request.Params, &params); err == nil {
+		if clientInfoRaw, exists := params["clientInfo"]; exists {
+			if clientInfoMap, ok := clientInfoRaw.(map[string]interface{}); ok {
+				if rootsRaw, exists := clientInfoMap["roots"]; exists {
+					if rootsSlice, ok := rootsRaw.([]interface{}); ok {
+						for _, rootRaw := range rootsSlice {
+							if rootMap, ok := rootRaw.(map[string]interface{}); ok {
+								if uri, exists := rootMap["uri"]; exists {
+									if uriStr, ok := uri.(string); ok {
+										if path := uriToPath(uriStr); path != "" {
+											initialRoots = append(initialRoots, path)
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Add initial roots to server roots
+	if len(initialRoots) > 0 {
+		s.Root(initialRoots...)
+	}
+
+	// Check if client supports roots capability and mark for fetching via roots/list
+	if clientSupportsRoots(ctx.Request.Params) {
+		s.needsRootFetch = true
+	}
+
 	// Determine sampling capabilities based on protocol version
 	samplingCaps := DetectClientCapabilities(protocolVersion)
 
-	// Update or create client info
+	// Update or create client info with session data (include initial roots and will be updated by roots/list)
 	clientInfo := ClientInfo{
 		SamplingSupported: samplingCaps.Supported,
 		SamplingCaps:      samplingCaps,
 		ProtocolVersion:   protocolVersion,
+		Env:               clientEnv,
+		Roots:             initialRoots, // Include initial roots from clientInfo
 	}
 
 	// Create a new session for this client
@@ -1007,9 +1054,14 @@ func (s *serverImpl) handleInitializedNotification() {
 		}
 	}
 
-	// Send initial capability notifications without locks
+	// Send initial capability notifications and fetch roots without locks
 	go func() {
 		time.Sleep(50 * time.Millisecond) // Small delay for client readiness
+
+		// Fetch workspace roots if needed (for non-stdio transports)
+		if s.needsRootFetch {
+			s.fetchWorkspaceRoots()
+		}
 
 		if hasTools {
 			s.sendCapabilityNotification("tools")
@@ -1023,56 +1075,13 @@ func (s *serverImpl) handleInitializedNotification() {
 	}()
 }
 
-// extractWorkspaceRoots extracts workspace root paths from initialization parameters
-func extractWorkspaceRoots(params interface{}) []string {
-	if params == nil {
-		return nil
-	}
-
-	// Handle both parsed maps and JSON byte slices
-	var paramsMap map[string]interface{}
-
-	switch p := params.(type) {
-	case map[string]interface{}:
-		paramsMap = p
-	case json.RawMessage:
-		// Parse JSON bytes
-		if err := json.Unmarshal(p, &paramsMap); err != nil {
-			return nil
-		}
-	case []byte:
-		// Parse JSON bytes
-		if err := json.Unmarshal(p, &paramsMap); err != nil {
-			return nil
-		}
-	default:
-		return nil
-	}
-
-	// Look for clientInfo.roots according to MCP spec
-	clientInfo, ok := paramsMap["clientInfo"].(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	roots, ok := clientInfo["roots"].([]interface{})
-	if !ok {
-		return nil
-	}
-
-	var result []string
-	for _, root := range roots {
-		if rootMap, ok := root.(map[string]interface{}); ok {
-			if uri, ok := rootMap["uri"].(string); ok {
-				// Convert file:// URIs to file paths
-				if path := uriToPath(uri); path != "" {
-					result = append(result, path)
-				}
-			}
-		}
-	}
-
-	return result
+// extractHTTPSessionData extracts environment variables from HTTP headers (MCP compliant)
+// For HTTP-based transports, session data should come from headers like Mcp-Session-Id
+func extractHTTPSessionData(ctx *Context) map[string]string {
+	// For HTTP transport, environment variables would typically be extracted from headers
+	// This is transport-specific and would be implemented based on your HTTP transport
+	// For now, return empty map since environment should come from headers, not init params
+	return make(map[string]string)
 }
 
 // uriToPath converts a file:// URI to a local file path
@@ -1329,4 +1338,209 @@ func (s *serverImpl) sendCapabilityNotification(capabilityType string) {
 			}
 		}
 	}()
+}
+
+// extractStdioSessionData extracts session environment variables from the server's process environment
+// This is used for stdio transport where the client passes environment variables when launching the server
+func extractStdioSessionData() map[string]string {
+	env := make(map[string]string)
+
+	// Read all environment variables
+	for _, envVar := range os.Environ() {
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) == 2 {
+			key, value := parts[0], parts[1]
+
+			// Include environment variables that are likely MCP-related
+			// You can customize this logic based on your needs
+			if isRelevantMCPEnvVar(key) {
+				env[key] = value
+			}
+		}
+	}
+
+	return env
+}
+
+// isRelevantMCPEnvVar determines if an environment variable is relevant for MCP session data
+func isRelevantMCPEnvVar(key string) bool {
+	// Include variables with common MCP/development prefixes
+	prefixes := []string{
+		"MCP_",
+		"CLIENT_",
+		"PROJECT_",
+		"WORKSPACE_",
+		"DEBUG",
+		"LOG_",
+		"API_",
+		"NODE_ENV",
+		"PYTHON_PATH",
+		"GO_",
+		"RUST_",
+	}
+
+	upperKey := strings.ToUpper(key)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(upperKey, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// clientSupportsRoots checks if the client supports the roots capability
+// by examining the capabilities in the initialization parameters
+func clientSupportsRoots(params interface{}) bool {
+	if params == nil {
+		return false
+	}
+
+	// Handle both parsed maps and JSON byte slices
+	var paramsMap map[string]interface{}
+
+	switch p := params.(type) {
+	case map[string]interface{}:
+		paramsMap = p
+	case json.RawMessage:
+		if err := json.Unmarshal(p, &paramsMap); err != nil {
+			return false
+		}
+	case []byte:
+		if err := json.Unmarshal(p, &paramsMap); err != nil {
+			return false
+		}
+	default:
+		return false
+	}
+
+	// Look for capabilities.roots in the client initialization
+	capabilities, ok := paramsMap["capabilities"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	roots, ok := capabilities["roots"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	// Check if the client supports roots/list (listChanged capability)
+	if listChanged, ok := roots["listChanged"].(bool); ok && listChanged {
+		return true
+	}
+
+	return false
+}
+
+// fetchWorkspaceRoots sends a roots/list request to the client to get workspace roots
+// This follows the MCP protocol where roots/list is a client capability
+func (s *serverImpl) fetchWorkspaceRoots() {
+	if s.transport == nil {
+		s.logger.Debug("no transport available for roots/list request")
+		return
+	}
+
+	// Generate a unique request ID
+	requestID := int(time.Now().UnixNano())
+
+	// Track the request for response handling
+	if s.requestTracker != nil {
+		responseChan := s.requestTracker.addRequest(requestID)
+
+		// Handle the response in a goroutine
+		go s.handleRootsListResponse(requestID, responseChan)
+	}
+
+	// Create the roots/list request
+	request := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      requestID,
+		"method":  "roots/list",
+	}
+
+	// Marshal the request to JSON
+	requestBytes, err := json.Marshal(request)
+	if err != nil {
+		s.logger.Error("failed to marshal roots/list request", "error", err)
+		if s.requestTracker != nil {
+			s.requestTracker.removeRequest(requestID)
+		}
+		return
+	}
+
+	// Send the request
+	if err := s.transport.Send(requestBytes); err != nil {
+		s.logger.Error("failed to send roots/list request", "error", err)
+		if s.requestTracker != nil {
+			s.requestTracker.removeRequest(requestID)
+		}
+		return
+	}
+
+	s.logger.Debug("sent roots/list request to client", "requestId", requestID)
+}
+
+// handleRootsListResponse processes the response to a roots/list request
+// and updates the default session with the workspace roots
+func (s *serverImpl) handleRootsListResponse(requestID int, responseChan chan json.RawMessage) {
+	// Wait for the response with a timeout
+	timeout := 10 * time.Second
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case responseData := <-responseChan:
+		// Parse the response
+		var response struct {
+			JSONRPC string `json:"jsonrpc"`
+			ID      int    `json:"id"`
+			Result  struct {
+				Roots []struct {
+					URI  string `json:"uri"`
+					Name string `json:"name,omitempty"`
+				} `json:"roots"`
+			} `json:"result,omitempty"`
+			Error *struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error,omitempty"`
+		}
+
+		if err := json.Unmarshal(responseData, &response); err != nil {
+			s.logger.Error("failed to parse roots/list response", "error", err)
+			return
+		}
+
+		// Check for error in response
+		if response.Error != nil {
+			s.logger.Error("received error in roots/list response",
+				"code", response.Error.Code,
+				"message", response.Error.Message)
+			return
+		}
+
+		// Extract root URIs from the response
+		var rootPaths []string
+		for _, root := range response.Result.Roots {
+			// Convert URI to path if needed (e.g., file:///path/to/dir -> /path/to/dir)
+			path := uriToPath(root.URI)
+			rootPaths = append(rootPaths, path)
+		}
+
+		// Update the default session with the workspace roots
+		if s.defaultSession != nil {
+			s.defaultSession.ClientInfo.Roots = rootPaths
+			s.logger.Debug("updated session with workspace roots",
+				"count", len(rootPaths),
+				"roots", rootPaths)
+		}
+
+	case <-timer.C:
+		s.logger.Warn("timeout waiting for roots/list response", "requestId", requestID)
+		// Clean up the request tracker
+		if s.requestTracker != nil {
+			s.requestTracker.removeRequest(requestID)
+		}
+	}
 }

@@ -11,6 +11,9 @@ import (
 // It's used to track and manage individual client connections to the server.
 type SessionID string
 
+// Session is an alias for ClientSession to provide a cleaner interface for context access
+type Session = ClientSession
+
 // ClientSession represents a session with a client.
 // It encapsulates all client-specific information including capabilities,
 // negotiated protocol version, and session metadata needed for managing
@@ -22,6 +25,30 @@ type ClientSession struct {
 	LastActive      time.Time         // Last time the session was active
 	ProtocolVersion string            // Negotiated protocol version
 	Metadata        map[string]string // Additional session metadata
+}
+
+// Env returns the environment variables from the client session
+func (s *ClientSession) Env() map[string]string {
+	if s == nil {
+		return make(map[string]string)
+	}
+	return s.ClientInfo.Env
+}
+
+// Roots returns the workspace roots from the client session
+func (s *ClientSession) Roots() []string {
+	if s == nil {
+		return []string{}
+	}
+	return s.ClientInfo.Roots
+}
+
+// Capabilities returns the sampling capabilities from the client session
+func (s *ClientSession) Capabilities() SamplingCapabilities {
+	if s == nil {
+		return SamplingCapabilities{}
+	}
+	return s.ClientInfo.SamplingCaps
 }
 
 // SessionManager manages client sessions.

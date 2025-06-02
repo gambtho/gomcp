@@ -48,3 +48,4 @@ node_modules/
 
 # Specification files (kept locally but not in repo)
 specification/
+.taskmaster

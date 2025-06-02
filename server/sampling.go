@@ -800,6 +800,8 @@ type ClientInfo struct {
 	SamplingSupported bool
 	SamplingCaps      SamplingCapabilities
 	ProtocolVersion   string
+	Env               map[string]string // Environment variables from the client session
+	Roots             []string          // Workspace root paths from the client session
 	// Add other client capabilities here
 }
 

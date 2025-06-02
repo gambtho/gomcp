@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/localrivet/gomcp/server"
+	"github.com/localrivet/gomcp/transport"
 )
 
 // MockTransport is a simple mock transport for testing
@@ -18,6 +19,7 @@ type MockTransport struct {
 	messageHandler func([]byte)
 	sendFunc       func(data []byte) error
 	responseDelay  time.Duration
+	logger         *slog.Logger
 	mu             sync.Mutex
 }
 
@@ -30,8 +32,8 @@ func NewMockTransport() *MockTransport {
 	}
 }
 
-// Send implements the server.Transport interface
-func (m *MockTransport) Send(message []byte) ([]byte, error) {
+// Send implements the Transport interface
+func (m *MockTransport) Send(message []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -40,20 +42,14 @@ func (m *MockTransport) Send(message []byte) ([]byte, error) {
 		m.requestHistory = append(m.requestHistory, message)
 	}
 
-	// If sendCallback is set, use it
-	if m.sendCallback != nil {
-		return m.sendCallback(message)
-	}
-
 	// If sendFunc is set, use it
 	if m.sendFunc != nil {
-		err := m.sendFunc(message)
-		return nil, err
+		return m.sendFunc(message)
 	}
 
 	// Default behavior: append to messages
 	m.messages = append(m.messages, message)
-	return nil, nil
+	return nil
 }
 
 // SendAsync implements the server.Transport interface
@@ -161,7 +157,8 @@ func (m *MockTransport) Disconnect() error {
 
 // SendWithContext sends a message with context
 func (m *MockTransport) SendWithContext(ctx context.Context, message []byte) ([]byte, error) {
-	return m.Send(message)
+	err := m.Send(message)
+	return nil, err
 }
 
 // SetRequestTimeout sets the timeout for requests
@@ -172,6 +169,25 @@ func (m *MockTransport) SetConnectionTimeout(timeout time.Duration) {}
 
 // RegisterNotificationHandler registers a handler for notifications
 func (m *MockTransport) RegisterNotificationHandler(handler func(method string, params []byte)) {}
+
+// GetLogger implements the Transport interface by returning a default logger
+func (m *MockTransport) GetLogger() *slog.Logger {
+	if m.logger == nil {
+		m.logger = slog.Default()
+	}
+	return m.logger
+}
+
+// Transport interface implementations that were missing
+func (m *MockTransport) Initialize() error                                  { return nil }
+func (m *MockTransport) Start() error                                       { return nil }
+func (m *MockTransport) Stop() error                                        { return nil }
+func (m *MockTransport) Receive() ([]byte, error)                           { return nil, nil }
+func (m *MockTransport) SetMessageHandler(handler transport.MessageHandler) {}
+func (m *MockTransport) SetDebugHandler(handler transport.DebugHandler)     {}
+func (m *MockTransport) SetLogger(logger *slog.Logger)                      { m.logger = logger }
+func (m *MockTransport) SetProtocolVersion(version string)                  {}
+func (m *MockTransport) GetProtocolVersion() string                         { return "draft" }
 
 // NewServer creates a new server for testing
 func NewServer(name string) server.Server {
