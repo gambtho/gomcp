@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -38,14 +39,35 @@ type MCPServer struct {
 // ServerRegistry manages a collection of MCP servers loaded from configuration
 type ServerRegistry struct {
 	servers map[string]*MCPServer
+	logger  *slog.Logger
 	mu      sync.RWMutex
 }
 
-// NewServerRegistry creates a new empty server registry
-func NewServerRegistry() *ServerRegistry {
-	return &ServerRegistry{
-		servers: make(map[string]*MCPServer),
+// ServerRegistryOption configures a ServerRegistry
+type ServerRegistryOption func(*ServerRegistry)
+
+// WithRegistryLogger sets a logger for the server registry.
+// When using stdio-based MCP servers, ensure the logger does not write to stdout/stderr
+// to avoid interfering with the JSON-RPC communication.
+func WithRegistryLogger(logger *slog.Logger) ServerRegistryOption {
+	return func(r *ServerRegistry) {
+		r.logger = logger
 	}
+}
+
+// NewServerRegistry creates a new empty server registry.
+// By default, no logging is enabled to avoid interfering with stdio-based MCP communication.
+func NewServerRegistry(opts ...ServerRegistryOption) *ServerRegistry {
+	r := &ServerRegistry{
+		servers: make(map[string]*MCPServer),
+		logger:  nil, // Default to no logging to avoid stdio interference
+	}
+
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	return r
 }
 
 // LoadConfig loads a server configuration from a file
@@ -65,24 +87,48 @@ func (r *ServerRegistry) LoadConfig(path string) error {
 
 // ApplyConfig applies a server configuration by starting servers and connecting clients
 func (r *ServerRegistry) ApplyConfig(config ServerConfig) error {
+	if len(config.MCPServers) == 0 {
+		return nil
+	}
+
+	// Use goroutines to start servers concurrently
+	type serverResult struct {
+		name string
+		err  error
+	}
+
+	resultCh := make(chan serverResult, len(config.MCPServers))
+
+	// Start all servers concurrently
 	for name, def := range config.MCPServers {
-		if err := r.StartServer(name, def); err != nil {
-			return fmt.Errorf("failed to start server %s: %w", name, err)
+		go func(serverName string, serverDef ServerDefinition) {
+			err := r.StartServer(serverName, serverDef)
+			resultCh <- serverResult{name: serverName, err: err}
+		}(name, def)
+	}
+
+	// Collect results and check for errors
+	var errors []string
+	successCount := 0
+	for i := 0; i < len(config.MCPServers); i++ {
+		result := <-resultCh
+		if result.err != nil {
+			errors = append(errors, fmt.Sprintf("server %s: %v", result.name, result.err))
+		} else {
+			successCount++
 		}
 	}
+
+	// Return error information if any servers failed
+	if len(errors) > 0 {
+		return fmt.Errorf("failed to start %d/%d servers: %s", len(errors), len(config.MCPServers), strings.Join(errors, "; "))
+	}
+
 	return nil
 }
 
 // StartServer starts a server from its definition and connects a client to it
 func (r *ServerRegistry) StartServer(name string, def ServerDefinition) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Check if server already exists
-	if _, exists := r.servers[name]; exists {
-		return fmt.Errorf("server %s already exists", name)
-	}
-
 	// Create command
 	cmd := exec.Command(def.Command, def.Args...)
 
@@ -118,16 +164,15 @@ func (r *ServerRegistry) StartServer(name string, def ServerDefinition) error {
 		writer: stdinPipe,
 	}
 
-	// Create a logger
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
-	logger = logger.With("server", name)
-
 	// Create client options - use the standard WithTransport function
 	clientOpts := []Option{
-		WithLogger(logger),
 		WithTransport(transport),
+	}
+
+	// Add logger if configured
+	if r.logger != nil {
+		serverLogger := r.logger.With("server", name)
+		clientOpts = append(clientOpts, WithLogger(serverLogger))
 	}
 
 	// Create the client and connect to the server
@@ -143,12 +188,22 @@ func (r *ServerRegistry) StartServer(name string, def ServerDefinition) error {
 		return fmt.Errorf("failed to create client for server %s: %w", name, err)
 	}
 
+	// Only lock for the brief moment we need to update the map
+	r.mu.Lock()
+	// Check if server already exists (race condition check)
+	if _, exists := r.servers[name]; exists {
+		r.mu.Unlock()
+		// Clean up the client and process we just created
+		client.Close()
+		return fmt.Errorf("server %s already exists", name)
+	}
 	// Store the server in our registry
 	r.servers[name] = &MCPServer{
 		Name:   name,
 		Client: client,
 		cmd:    cmd,
 	}
+	r.mu.Unlock()
 
 	return nil
 }
@@ -326,9 +381,61 @@ func (t *stdioPipeTransport) RegisterNotificationHandler(handler func(method str
 // Root functions to provide a cleaner API following the PRD guidance
 // These will be added to the root gomcp.go file
 
-// NewDefaultLogger creates a simple logger suitable for MCP clients
-func NewDefaultLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+// LoggerOption configures a logger
+type LoggerOption func(*loggerConfig)
+
+type loggerConfig struct {
+	level  slog.Level
+	output io.Writer
+}
+
+// WithLogLevel sets the log level
+func WithLogLevel(level slog.Level) LoggerOption {
+	return func(c *loggerConfig) {
+		c.level = level
+	}
+}
+
+// WithLogOutput sets the output writer
+func WithLogOutput(w io.Writer) LoggerOption {
+	return func(c *loggerConfig) {
+		c.output = w
+	}
+}
+
+// WithLogFile sets the output to a file (safe for stdio-based MCP communication)
+func WithLogFile(filename string) LoggerOption {
+	return func(c *loggerConfig) {
+		file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			// If file opening fails, fall back to discard to avoid panics
+			c.output = io.Discard
+			return
+		}
+		c.output = file
+	}
+}
+
+// WithLogDiscard disables all logging output
+func WithLogDiscard() LoggerOption {
+	return func(c *loggerConfig) {
+		c.output = io.Discard
+	}
+}
+
+// NewLogger creates a logger with the specified options.
+// By default, creates a logger that writes to stderr with Info level.
+func NewLogger(opts ...LoggerOption) *slog.Logger {
+	config := &loggerConfig{
+		level:  slog.LevelInfo,
+		output: os.Stderr,
+	}
+
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	return slog.New(slog.NewTextHandler(config.output, &slog.HandlerOptions{
+		Level: config.level,
 	}))
 }

@@ -69,16 +69,16 @@ func (c *clientImpl) Connect() error {
 
 // initialize performs the initial version negotiation with the server.
 func (c *clientImpl) initialize() error {
-	// Determine which protocol version(s) to send
-	var protocolVersion interface{}
+	// Determine which protocol version to send
+	var protocolVersion string
 
 	// If a negotiated version was already set (via WithProtocolVersion),
-	// use that single version instead of the full array
+	// use that single version
 	if c.negotiatedVersion != "" {
 		protocolVersion = c.negotiatedVersion
 	} else {
-		// Otherwise use the full list of supported versions
-		protocolVersion = c.versionDetector.Supported
+		// Otherwise use the default (most preferred) version
+		protocolVersion = c.versionDetector.DefaultVersion
 	}
 
 	// Create the initialize request
@@ -133,17 +133,17 @@ func (c *clientImpl) initialize() error {
 	}
 
 	// Extract the negotiated protocol version
-	protocolVersion, ok := response.Result["protocolVersion"].(string)
+	serverProtocolVersion, ok := response.Result["protocolVersion"].(string)
 	if !ok {
 		return errors.New("server did not provide a protocol version")
 	}
 
 	// Validate the protocol version
-	if _, err := c.versionDetector.ValidateVersion(protocolVersion.(string)); err != nil {
+	if _, err := c.versionDetector.ValidateVersion(serverProtocolVersion); err != nil {
 		return fmt.Errorf("server returned invalid protocol version: %w", err)
 	}
 
-	c.negotiatedVersion = protocolVersion.(string)
+	c.negotiatedVersion = serverProtocolVersion
 
 	// Extract and store server capabilities
 	if capabilitiesData, exists := response.Result["capabilities"]; exists {

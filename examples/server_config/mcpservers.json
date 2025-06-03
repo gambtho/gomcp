@@ -7,16 +7,9 @@
                 "@modelcontextprotocol/server-memory"
             ]
         },
-        "filesystem": {
-            "command": "npx",
-            "args": [
-                "-y",
-                "@modelcontextprotocol/server-filesystem",
-                "."
-            ],
-            "env": {
-                "DEBUG": "true"
-            }
+        "godevtools": {
+            "command": "godevtools",
+            "args": []
         },
         "task-master-ai": {
             "command": "npx",

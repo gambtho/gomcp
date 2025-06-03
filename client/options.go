@@ -133,14 +133,40 @@ func WithProtocolNegotiation(enabled bool) Option {
 	}
 }
 
+// ServerConfigOption configures server registry behavior
+type ServerConfigOption func(*serverConfigParams)
+
+type serverConfigParams struct {
+	registryLogger *slog.Logger
+}
+
+// WithServerRegistryLogger sets a logger for the server registry.
+// Use this when you want logging from the server management, but make sure the logger doesn't write to
+// stdout/stderr if using stdio transport to avoid interfering with the MCP communication.
+func WithServerRegistryLogger(logger *slog.Logger) ServerConfigOption {
+	return func(p *serverConfigParams) {
+		p.registryLogger = logger
+	}
+}
+
 // WithServerConfig loads server configurations from a file and connects to a specific named server.
 // This is used to integrate with the server registry system to automatically manage server processes.
 // If the server requires starting a new process, it will be launched and managed by the registry.
 // When the client is closed, the associated server process will be terminated if it was launched by this option.
-func WithServerConfig(configPath string, serverName string) Option {
+func WithServerConfig(configPath string, serverName string, opts ...ServerConfigOption) Option {
 	return func(c *clientImpl) {
-		// Create a new server registry
-		registry := NewServerRegistry()
+		// Process options
+		params := &serverConfigParams{}
+		for _, opt := range opts {
+			opt(params)
+		}
+
+		// Create a new server registry with options
+		var registryOpts []ServerRegistryOption
+		if params.registryLogger != nil {
+			registryOpts = append(registryOpts, WithRegistryLogger(params.registryLogger))
+		}
+		registry := NewServerRegistry(registryOpts...)
 
 		// Load the config
 		if err := registry.LoadConfig(configPath); err != nil {
@@ -176,10 +202,20 @@ func WithServerConfig(configPath string, serverName string) Option {
 // WithServers provides direct server configurations to the client.
 // This is similar to WithServerConfig but accepts an in-memory configuration
 // instead of loading from a file.
-func WithServers(config ServerConfig, serverName string) Option {
+func WithServers(config ServerConfig, serverName string, opts ...ServerConfigOption) Option {
 	return func(c *clientImpl) {
-		// Create a new server registry
-		registry := NewServerRegistry()
+		// Process options
+		params := &serverConfigParams{}
+		for _, opt := range opts {
+			opt(params)
+		}
+
+		// Create a new server registry with options
+		var registryOpts []ServerRegistryOption
+		if params.registryLogger != nil {
+			registryOpts = append(registryOpts, WithRegistryLogger(params.registryLogger))
+		}
+		registry := NewServerRegistry(registryOpts...)
 
 		// Apply the config directly
 		if err := registry.ApplyConfig(config); err != nil {

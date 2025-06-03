@@ -27,9 +27,24 @@ func main() {
 	fmt.Printf("Loading server configuration from %s\n", configFile)
 
 	// Load the MCP servers from the config file using the client package directly
-	registry := client.NewServerRegistry()
+	registry := client.NewServerRegistry(
+		client.WithRegistryLogger(logger),
+	)
 	if err := registry.LoadConfig(configFile); err != nil {
-		log.Fatalf("Failed to load server configuration: %v", err)
+		// Don't fatal immediately - show what servers failed and which succeeded
+		fmt.Printf("Server configuration errors: %v\n", err)
+
+		// Continue to see which servers did start successfully
+		serverNames, namesErr := registry.GetServerNames()
+		if namesErr != nil {
+			log.Fatalf("Failed to get server names after partial load: %v", namesErr)
+		}
+
+		if len(serverNames) == 0 {
+			log.Fatalf("No servers started successfully")
+		}
+
+		fmt.Printf("Continuing with %d servers that started successfully: %v\n", len(serverNames), serverNames)
 	}
 
 	// Get all server names
