@@ -16,6 +16,8 @@ The GoMCP server is a Go implementation of the Multimodal Chat Protocol (MCP), w
 - Extensible design with the ability to register tools and resources
 - Supports JSON Schema for tool and resource arguments
 - Provides helper methods for executing tools and accessing resources
+- **MCP Session Architecture**: Comprehensive session management with transport-aware data extraction
+- **Automated Root Fetching**: Automatic workspace root discovery following MCP protocol
 
 ## Quick Start
 
@@ -197,6 +199,70 @@ srv.Resource("/hello", "Greeting resource", func(ctx *server.Context, args map[s
 type UserParams struct {
     ID string `json:"id"`
 }
+
+## Session Management
+
+GoMCP v1.5.5+ includes comprehensive session management through the MCP Session Architecture:
+
+### Accessing Session Data
+
+```go
+srv.Tool("analyze_workspace", "Analyze workspace with session context", func(ctx *server.Context, args struct {
+    AnalysisType string `json:"analysis_type"`
+}) (interface{}, error) {
+    // Access session environment (from transport)
+    env := ctx.Session.Env()
+    apiKey := env["OPENAI_API_KEY"]
+    
+    // Access workspace roots (from init + automated roots/list)
+    roots := ctx.Session.Roots()
+    
+    // Access client capabilities
+    caps := ctx.Session.Capabilities()
+    
+    return map[string]interface{}{
+        "workspace_roots": roots,
+        "has_api_key": apiKey != "",
+        "supports_sampling": caps.Sampling.Supported,
+        "supports_audio": caps.Audio.Supported,
+        "analysis_type": args.AnalysisType,
+    }, nil
+})
+```
+
+### Session Data Sources
+
+Session data is automatically extracted from transport layers:
+
+- **stdio**: Environment from process environment variables
+- **HTTP**: Environment from request headers (`X-Env-*` pattern)  
+- **WebSocket**: Environment from connection headers
+- **SSE**: Environment from initial request headers
+
+### Automated Root Discovery
+
+The server automatically:
+
+1. Extracts workspace roots from `clientInfo.roots` during initialization
+2. Detects if client supports `roots` capability
+3. Sends `roots/list` requests after `notifications/initialized`
+4. Processes responses and updates session context
+5. Makes roots available via `ctx.Session.Roots()`
+
+### Backward Compatibility
+
+All existing context methods continue to work:
+
+```go
+// Legacy methods (still supported)
+roots := ctx.GetRoots()
+primaryRoot := ctx.GetPrimaryRoot()
+inWorkspace := ctx.InRoots("/path/to/file")
+
+// New session methods
+sessionRoots := ctx.Session.Roots()
+env := ctx.Session.Env()
+caps := ctx.Session.Capabilities()
 
 srv.Resource("/users/{id}", "Get user by ID", func(ctx *server.Context, args *UserParams) (interface{}, error) {
     return "User: " + args.ID, nil

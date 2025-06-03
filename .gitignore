@@ -49,3 +49,4 @@ node_modules/
 # Specification files (kept locally but not in repo)
 specification/
 .taskmaster
+GOMCP_FEATURE_REQUEST.md

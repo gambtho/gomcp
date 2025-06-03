@@ -25,6 +25,7 @@ GoMCP is a complete Go implementation of the Model Context Protocol (MCP), desig
   - [Event System](#event-system)
   - [Transports](#transports)
   - [Server Management](#server-management)
+  - [Session Management](#session-management)
 - [Examples](#examples)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
@@ -35,9 +36,10 @@ GoMCP is a complete Go implementation of the Model Context Protocol (MCP), desig
 The Model Context Protocol (MCP) standardizes communication between applications and LLMs, enabling:
 
 - **Tool Calling**: Execute actions and functions through LLMs
-- **Resource Access**: Provide structured data to LLMs
+- **Resource Access**: Provide structured data to LLMs with workspace context
 - **Prompt Rendering**: Create reusable templates for LLM interactions
 - **Sampling**: Generate text from LLMs with control over parameters
+- **Session Management**: Rich context and workspace root access for enhanced tool capabilities
 
 GoMCP provides an idiomatic Go implementation that handles all the protocol details while offering a clean, developer-friendly API.
 
@@ -49,6 +51,8 @@ GoMCP provides an idiomatic Go implementation that handles all the protocol deta
 - **Type-Safe API**: Leverages Go's type system for safety and expressiveness
 - **Server Process Management**: Automatically start, manage, and stop external MCP servers
 - **Server Configuration**: Load server definitions from configuration files
+- **MCP Session Architecture**: Comprehensive session management with transport-aware data extraction
+- **Automated Root Fetching**: Automatic workspace root discovery following MCP protocol
 - **Flexible Architecture**: Modular design for easy extension and customization
 
 ## API Stability
@@ -1202,6 +1206,115 @@ if !status.Running {
   }
 }
 ```
+
+### Session Management
+
+GoMCP v1.5.5 introduces comprehensive session management with the MCP Session Architecture, providing rich context and automated workspace discovery:
+
+#### Server-Side Session Access
+
+```go
+// Tool handlers receive session context automatically
+srv.Tool("analyze_project", "Analyze project structure", func(ctx *server.Context, args struct {
+    AnalysisType string `json:"analysis_type"`
+}) (interface{}, error) {
+    // Access session environment (from transport headers/process env)
+    env := ctx.Session.Env()
+    apiKey := env["ANTHROPIC_API_KEY"]
+    
+    // Access workspace roots (from clientInfo + automated roots/list)
+    roots := ctx.Session.Roots()
+    primaryRoot := ""
+    if len(roots) > 0 {
+        primaryRoot = roots[0]
+    }
+    
+    // Access client capabilities
+    caps := ctx.Session.Capabilities()
+    
+    return map[string]interface{}{
+        "primary_workspace": primaryRoot,
+        "all_roots": roots,
+        "has_api_access": apiKey != "",
+        "supports_sampling": caps.Sampling.Supported,
+        "analysis_type": args.AnalysisType,
+    }, nil
+})
+```
+
+#### Transport-Aware Session Data
+
+GoMCP automatically extracts session data from the transport layer per MCP specification:
+
+- **stdio**: Environment from process environment variables
+- **HTTP**: Environment from request headers (`X-Env-*` pattern)
+- **WebSocket**: Environment from connection headers
+- **SSE**: Environment from initial request headers
+
+#### Automated Workspace Root Discovery
+
+The server automatically detects when clients support the `roots` capability and:
+
+1. **Initial Extraction**: Extracts workspace roots from `clientInfo.roots` during initialization
+2. **Capability Detection**: Detects if client advertises `roots` capability 
+3. **Automated Fetching**: Sends `roots/list` requests after `notifications/initialized`
+4. **Response Handling**: Processes `roots/list` responses with proper request tracking
+5. **Context Integration**: Makes roots available via `ctx.Session.Roots()`
+
+#### MCP Protocol Compliance
+
+Full compliance across all three MCP protocol versions:
+- **2024-11-05**: Basic root extraction and capability detection
+- **2025-03-26**: Enhanced session management with audio support detection
+- **draft**: Latest features with full session architecture
+
+#### ClientInfo Structure
+
+Enhanced `ClientInfo` provides comprehensive session data:
+
+```go
+type ClientInfo struct {
+    Name              string                 `json:"name"`
+    Version           string                 `json:"version"`
+    SamplingSupported bool                   `json:"sampling_supported,omitempty"`
+    SamplingCaps      *SamplingCapabilities  `json:"sampling_caps,omitempty"`
+    ProtocolVersion   string                 `json:"protocol_version,omitempty"`
+    Env               map[string]string      `json:"env,omitempty"`           // NEW: Environment data from transport
+    Roots             []string               `json:"roots,omitempty"`         // NEW: Workspace roots from init + roots/list
+}
+```
+
+#### Session Convenience Methods
+
+The `ClientSession` interface provides easy access to session data:
+
+```go
+// In tool handlers
+func MyTool(ctx *server.Context, args MyArgs) (interface{}, error) {
+    session := ctx.Session
+    
+    // Get environment variables (from transport)
+    env := session.Env()
+    dbUrl := env["DATABASE_URL"]
+    
+    // Get workspace roots (from init + automated roots/list)
+    roots := session.Roots()
+    
+    // Get client capabilities  
+    caps := session.Capabilities()
+    supportsSampling := caps.Sampling.Supported
+    supportsAudio := caps.Audio.Supported
+    
+    // Use session data in tool logic...
+}
+```
+
+#### Benefits
+
+- **Zero Configuration**: Automatic session data extraction with no manual setup
+- **MCP Compliant**: Follows official MCP specification for session handling
+- **Transport Agnostic**: Works consistently across all transport types
+- **Backward Compatible**: No breaking changes to existing tool handlers
 
 ## Examples
 

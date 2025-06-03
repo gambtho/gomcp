@@ -21,6 +21,10 @@ This section provides comprehensive documentation for the GOMCP API.
 - [transport/sse](transport-sse.md) - Server-Sent Events transport
 - [transport/http](transport-http.md) - HTTP transport
 
+## Session Management
+
+- [session-management](session-management.md) - Comprehensive session management and workspace root discovery
+
 ## Utility Packages
 
 - [util/schema](util-schema.md) - JSON Schema generation and validation
@@ -67,39 +71,76 @@ server.Prompt("promptName", "description", template)
 server.Run()
 ```
 
-## Workspace Roots Integration
+## Session Management & Workspace Roots Integration
 
-GOMCP servers automatically integrate with the MCP roots protocol to provide workspace context to tools. This eliminates the need for manual project_root parameters.
+GOMCP v1.5.5+ provides comprehensive session management with the MCP Session Architecture, including automatic workspace root discovery and transport-aware session data.
 
-### Context API
+### Session Context API
 
-Tools receive workspace information through the context:
+Tools receive rich session information through the context:
 
 ```go
 func MyTool(ctx *server.Context, args struct{}) (interface{}, error) {
-    // Get all workspace roots
-    roots := ctx.GetRoots()
+    // Access session data (NEW in v1.5.5)
+    session := ctx.Session
     
-    // Get primary workspace root
+    // Get environment variables from transport
+    env := session.Env()
+    apiKey := env["API_KEY"]
+    
+    // Get workspace roots (from init + automated roots/list)
+    roots := session.Roots()
+    
+    // Get client capabilities
+    caps := session.Capabilities()
+    supportsSampling := caps.Sampling.Supported
+    
+    // Legacy workspace root methods (still supported)
+    allRoots := ctx.GetRoots()
     primaryRoot := ctx.GetPrimaryRoot()
-    
-    // Check if path is within workspace
     isInWorkspace := ctx.InRoots("/path/to/file")
     
     return map[string]interface{}{
+        "session_env": env,
+        "workspace_roots": roots,
+        "supports_sampling": supportsSampling,
         "primary_root": primaryRoot,
-        "all_roots": roots,
+        "all_roots": allRoots,
         "in_workspace": isInWorkspace,
     }, nil
 }
 ```
 
+### Session Management Features
+
+- **Transport-Aware Environment Extraction**: Automatically extracts environment data from transport layer (stdio process env, HTTP headers, etc.)
+- **Automated Root Fetching**: Detects client `roots` capability and automatically sends `roots/list` requests
+- **MCP Protocol Compliance**: Full compliance across all three protocol versions (2024-11-05, 2025-03-26, draft)
+- **Convenience Methods**: Easy access via `ctx.Session.Env()`, `ctx.Session.Roots()`, `ctx.Session.Capabilities()`
+
+### Workspace Root Discovery Process
+
+1. **Initial Extraction**: Workspace roots from `clientInfo.roots` during initialization
+2. **Capability Detection**: Server detects if client advertises `roots` capability
+3. **Automated Fetching**: Server sends `roots/list` request after `notifications/initialized`
+4. **Response Processing**: Server processes `roots/list` response with proper request tracking
+5. **Context Integration**: Roots available immediately via both session and legacy methods
+
+### Legacy Compatibility
+
+All existing workspace root methods continue to work:
+- `ctx.GetRoots()` - Returns all workspace roots
+- `ctx.GetPrimaryRoot()` - Returns primary workspace root  
+- `ctx.InRoots(path)` - Checks if path is within workspace
+
 ### Features
 
-- Automatic extraction of workspace roots from MCP client initialization
-- Thread-safe access to workspace context
-- Convenient helper methods for path validation
+- Automatic extraction of workspace roots from MCP client initialization AND automated `roots/list` requests
+- Transport-aware session data extraction (environment, capabilities, etc.)
+- Thread-safe access to workspace and session context
+- Convenient helper methods for path validation and session data access
 - No manual configuration required
+- Full backward compatibility with existing code
 
 ## Generating Documentation
 
