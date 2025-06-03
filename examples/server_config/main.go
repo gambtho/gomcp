@@ -30,6 +30,21 @@ func main() {
 	registry := client.NewServerRegistry(
 		client.WithRegistryLogger(logger),
 	)
+
+	// IMPORTANT: Use defer registry.StopAll() for proper cleanup
+	// This ensures all server processes are gracefully terminated on exit
+	// NOTE: Do NOT call individual client.Close() before registry.StopAll()
+	// as this creates a race condition where processes may be killed before
+	// they can be properly waited for.
+	defer func() {
+		fmt.Println("\nShutting down all servers...")
+		if err := registry.StopAll(); err != nil {
+			log.Printf("Warning: Error during server shutdown: %v", err)
+		} else {
+			fmt.Println("All servers shutdown successfully")
+		}
+	}()
+
 	if err := registry.LoadConfig(configFile); err != nil {
 		// Don't fatal immediately - show what servers failed and which succeeded
 		fmt.Printf("Server configuration errors: %v\n", err)
@@ -191,16 +206,12 @@ func main() {
 	// Wait for termination signal
 	<-signalCh
 
-	fmt.Println("\nShutting down server connections...")
+	// Note: No need to manually close individual clients here
+	// The defer registry.StopAll() will handle all cleanup automatically
+	fmt.Println("\nExiting... (servers will be shutdown automatically)")
 
-	// Close all client connections
-	for name, client := range clients {
-		if err := client.Close(); err != nil {
-			log.Printf("Warning: Error closing client for %s: %v", name, err)
-		} else {
-			fmt.Printf("Successfully closed client for %s\n", name)
-		}
-	}
-
-	fmt.Println("All server connections closed successfully")
+	// Uncomment below to see the wrong way (creates race condition):
+	// for name, client := range clients {
+	//     client.Close() // ❌ DON'T DO THIS - causes race condition with registry.StopAll()
+	// }
 }

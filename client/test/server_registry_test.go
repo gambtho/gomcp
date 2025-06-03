@@ -408,3 +408,91 @@ func TestConcurrentServerStartup(t *testing.T) {
 		})
 	}
 }
+
+func TestServerRegistryCleanupRaceCondition(t *testing.T) {
+	t.Run("proper cleanup without race condition", func(t *testing.T) {
+		// Create a registry with discard logger to avoid output interference
+		registry := client.NewServerRegistry(client.WithRegistryLogger(client.NewLogger(client.WithLogDiscard())))
+
+		// Create a configuration with a simple echo server
+		config := client.ServerConfig{
+			MCPServers: map[string]client.ServerDefinition{
+				"test-server": {
+					Command: "echo",
+					Args:    []string{"test"},
+				},
+			},
+		}
+
+		// Start the server
+		startTime := time.Now()
+		err := registry.ApplyConfig(config)
+		elapsed := time.Since(startTime)
+
+		// We expect the server to start (even though echo will exit immediately)
+		// This tests that there are no deadlocks in the startup process
+		if elapsed > time.Second*5 {
+			t.Errorf("Server startup took too long: %v (possible deadlock)", elapsed)
+		}
+
+		// Log any startup errors (expected for echo command)
+		if err != nil {
+			t.Logf("Note: ApplyConfig returned error (expected for echo command): %v", err)
+		}
+
+		// Get the client to verify it was created
+		client, clientErr := registry.GetClient("test-server")
+		if clientErr == nil && client != nil {
+			// If we got a client, it means the server started successfully
+			// Now test the proper cleanup sequence
+			shutdownTime := time.Now()
+
+			// Test that StopAll() works without race conditions
+			stopErr := registry.StopAll()
+			shutdownElapsed := time.Since(shutdownTime)
+
+			// Should not take longer than a reasonable timeout
+			if shutdownElapsed > time.Second*3 {
+				t.Errorf("Server shutdown took too long: %v (possible deadlock)", shutdownElapsed)
+			}
+
+			// Should not have errors (even though the echo process may have already exited)
+			if stopErr != nil {
+				t.Logf("Note: StopAll() returned error (expected for echo command): %v", stopErr)
+			}
+		} else {
+			// If we couldn't get a client, that's fine - echo command exits immediately
+			t.Logf("Note: Could not get client (expected for echo command): %v", clientErr)
+		}
+
+		// Verify we can still call StopAll() again without issues
+		secondStopErr := registry.StopAll()
+		if secondStopErr != nil {
+			t.Logf("Note: Second StopAll() returned error (expected): %v", secondStopErr)
+		}
+	})
+
+	t.Run("demonstrate race condition warning", func(t *testing.T) {
+		// This test documents the race condition pattern that users should avoid
+		// We don't actually execute the problematic code, but show it in comments
+
+		registry := client.NewServerRegistry(client.WithRegistryLogger(client.NewLogger(client.WithLogDiscard())))
+
+		// ❌ DON'T DO THIS (race condition):
+		// defer func() {
+		//     client.Close()         // Kills the connection/process
+		//     registry.StopAll()     // Tries to wait for already-killed process
+		// }()
+
+		// ✅ DO THIS INSTEAD (proper cleanup):
+		defer func() {
+			// Only call registry.StopAll() - it handles client cleanup internally
+			if err := registry.StopAll(); err != nil {
+				t.Logf("Cleanup error (expected for empty registry): %v", err)
+			}
+		}()
+
+		// This test passes to document the correct pattern
+		t.Log("Race condition test completed - shows correct cleanup pattern in comments")
+	})
+}

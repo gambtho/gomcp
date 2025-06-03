@@ -1215,6 +1215,50 @@ if !status.Running {
 }
 ```
 
+### Proper Cleanup Patterns
+
+When using server registries with multiple MCP servers, it's important to follow proper cleanup patterns to avoid race conditions:
+
+#### ✅ Correct Pattern: Use registry.StopAll()
+
+```go
+registry := client.NewServerRegistry(
+    client.WithRegistryLogger(logger),
+)
+
+// IMPORTANT: Use defer registry.StopAll() for proper cleanup
+defer func() {
+    if err := registry.StopAll(); err != nil {
+        log.Printf("Warning: Error during server shutdown: %v", err)
+    }
+}()
+
+err := registry.LoadConfig(configFile)
+// ... use the servers ...
+```
+
+#### ❌ Incorrect Pattern: Manual client.Close() before registry.StopAll()
+
+```go
+// DON'T DO THIS - creates race condition
+defer func() {
+    client.Close()         // ❌ Kills connection/process immediately
+    registry.StopAll()     // ❌ Tries to wait for already-killed process
+}()
+```
+
+**Why this creates a race condition:**
+1. `client.Close()` immediately terminates the MCP connection and may kill the server process
+2. `registry.StopAll()` then tries to gracefully shut down processes that are already dead
+3. This results in "Failed to wait for server process error='signal: killed'" errors
+
+#### Best Practices
+
+- **Always use `registry.StopAll()`** - it handles all client cleanup internally
+- **Use defer blocks** for guaranteed cleanup on program exit
+- **Don't mix manual client.Close() with registry.StopAll()**
+- **Handle cleanup errors gracefully** - processes may have already exited
+
 ### Session Management
 
 GoMCP v1.5.5 introduces comprehensive session management with the MCP Session Architecture, providing rich context and automated workspace discovery:
