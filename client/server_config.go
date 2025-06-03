@@ -249,12 +249,18 @@ func (r *ServerRegistry) StopServer(name string) error {
 		return fmt.Errorf("failed to close client: %w", err)
 	}
 
-	// Then terminate the process
+	// Then terminate the process (it may have already exited gracefully)
 	if err := server.cmd.Process.Kill(); err != nil {
-		slog.Default().Error("Failed to kill server process", "error", err)
+		// Only log as warning if the process wasn't already dead
+		if !strings.Contains(err.Error(), "process already finished") {
+			slog.Default().Warn("Process kill failed (may have already exited)", "error", err)
+		}
 	}
 	if err := server.cmd.Wait(); err != nil {
-		slog.Default().Error("Failed to wait for server process", "error", err)
+		// Don't log "signal: killed" as an error since we just killed it
+		if !strings.Contains(err.Error(), "signal: killed") {
+			slog.Default().Warn("Process wait failed", "error", err)
+		}
 	}
 
 	// Remove from our registry
