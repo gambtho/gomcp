@@ -44,7 +44,10 @@ func testRootsListForVersion(t *testing.T, protocolVersion string) {
 		}
 
 		initBytes, _ := json.Marshal(initRequest)
-		server.HandleMessage(serverImpl, initBytes)
+		_, err := server.HandleMessage(serverImpl, initBytes)
+		if err != nil {
+			t.Fatalf("Failed to initialize server: %v", err)
+		}
 
 		// Send initialized notification
 		notification := map[string]interface{}{
@@ -52,7 +55,10 @@ func testRootsListForVersion(t *testing.T, protocolVersion string) {
 			"method":  "notifications/initialized",
 		}
 		notificationBytes, _ := json.Marshal(notification)
-		server.HandleMessage(serverImpl, notificationBytes)
+		_, err = server.HandleMessage(serverImpl, notificationBytes)
+		if err != nil {
+			t.Fatalf("Failed to send initialized notification: %v", err)
+		}
 
 		// Wait briefly for any async operations
 		time.Sleep(50 * time.Millisecond)
@@ -90,7 +96,10 @@ func testRootsListForVersion(t *testing.T, protocolVersion string) {
 		}
 
 		initBytes, _ := json.Marshal(initRequest)
-		server.HandleMessage(serverImpl, initBytes)
+		_, err := server.HandleMessage(serverImpl, initBytes)
+		if err != nil {
+			t.Fatalf("Failed to initialize server: %v", err)
+		}
 
 		// Send initialized notification
 		notification := map[string]interface{}{
@@ -98,7 +107,10 @@ func testRootsListForVersion(t *testing.T, protocolVersion string) {
 			"method":  "notifications/initialized",
 		}
 		notificationBytes, _ := json.Marshal(notification)
-		server.HandleMessage(serverImpl, notificationBytes)
+		_, err = server.HandleMessage(serverImpl, notificationBytes)
+		if err != nil {
+			t.Fatalf("Failed to send initialized notification: %v", err)
+		}
 
 		// Wait for async roots/list request
 		time.Sleep(100 * time.Millisecond)

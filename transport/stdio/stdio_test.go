@@ -144,7 +144,7 @@ func TestReadLoop(t *testing.T) {
 	// Clean up
 	defer func() {
 		if err := transport.Stop(); err != nil {
-			t.Logf("Error stopping transport: %v", err)
+			t.Logf("Warning: Failed to stop transport: %v", err)
 		}
 	}()
 
@@ -181,7 +181,7 @@ func TestReadLoopWithError(t *testing.T) {
 	// Clean up
 	defer func() {
 		if err := transport.Stop(); err != nil {
-			t.Logf("Error stopping transport: %v", err)
+			t.Logf("Warning: Failed to stop transport: %v", err)
 		}
 	}()
 }
@@ -222,7 +222,7 @@ func TestReadLoopWithEOF(t *testing.T) {
 	// Clean up
 	defer func() {
 		if err := transport.Stop(); err != nil {
-			t.Logf("Error stopping transport: %v", err)
+			t.Logf("Warning: Failed to stop transport: %v", err)
 		}
 	}()
 
@@ -373,7 +373,11 @@ func TestTransportAntiFragileFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start transport: %v", err)
 	}
-	defer transport.Stop()
+	defer func() {
+		if err := transport.Stop(); err != nil {
+			t.Logf("Warning: Failed to stop transport: %v", err)
+		}
+	}()
 
 	// Test data: mix of valid JSON-RPC and noise
 	testMessages := []string{

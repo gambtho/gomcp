@@ -145,16 +145,30 @@ func (c *clientImpl) sendRequestWithOptions(method string, params interface{}, o
 			c.sendCancellationNotification(requestIDStr, "Request timeout")
 		}
 
-		// Emit event with actual request JSON and error
+		// Emit request failed event
 		go func() {
-			events.Publish[events.RequestFailedEvent](c.events, events.TopicRequestFailed, events.RequestFailedEvent{
-				Method:      method,
-				RequestJSON: string(requestJSON),
-				Error:       err.Error(),
-			})
+			if pubErr := events.Publish[events.RequestFailedEvent](c.events, events.TopicRequestFailed, events.RequestFailedEvent{
+				Method: method,
+				Error:  err.Error(),
+			}); pubErr != nil {
+				c.logger.Warn("failed to publish request failed event", "error", pubErr)
+			}
 		}()
 
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, err
+	}
+
+	// If this is a tools/call request, emit tool executed event
+	if method == "tools/call" {
+		go func() {
+			if err := events.Publish[events.ToolExecutedEvent](c.events, events.TopicToolExecuted, events.ToolExecutedEvent{
+				Method:       method,
+				RequestJSON:  string(requestJSON),
+				ResponseJSON: string(responseJSON),
+			}); err != nil {
+				c.logger.Warn("failed to publish tool executed event", "error", err)
+			}
+		}()
 	}
 
 	// Parse the response
@@ -177,15 +191,6 @@ func (c *clientImpl) sendRequestWithOptions(method string, params interface{}, o
 	if response.Error != nil {
 		return nil, fmt.Errorf("JSON-RPC error %d: %s", response.Error.Code, response.Error.Message)
 	}
-
-	// Emit event with actual request and response JSON
-	go func() {
-		events.Publish[events.ToolExecutedEvent](c.events, events.TopicToolExecuted, events.ToolExecutedEvent{
-			Method:       method,
-			RequestJSON:  string(requestJSON),
-			ResponseJSON: string(responseJSON),
-		})
-	}()
 
 	return response.Result, nil
 }
@@ -267,20 +272,6 @@ func (c *clientImpl) unregisterProgressTracker(requestID string) {
 	progressMu.Lock()
 	defer progressMu.Unlock()
 	delete(progressTrackers, requestID)
-}
-
-// handleProgressNotification handles incoming progress notifications for timeout reset
-func (c *clientImpl) handleProgressNotification(requestID string) {
-	progressMu.RLock()
-	tracker, exists := progressTrackers[requestID]
-	progressMu.RUnlock()
-
-	if exists && tracker != nil {
-		tracker.mu.Lock()
-		tracker.progressReceived = true
-		tracker.lastProgressTime = time.Now()
-		tracker.mu.Unlock()
-	}
 }
 
 // sendCancellationNotification sends a cancellation notification as required by MCP specification

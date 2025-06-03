@@ -19,12 +19,13 @@ type Session = ClientSession
 // negotiated protocol version, and session metadata needed for managing
 // the client connection lifecycle.
 type ClientSession struct {
-	ID              SessionID         // Unique session identifier
-	ClientInfo      ClientInfo        // Information about the client
-	Created         time.Time         // When the session was created
-	LastActive      time.Time         // Last time the session was active
-	ProtocolVersion string            // Negotiated protocol version
-	Metadata        map[string]string // Additional session metadata
+	ID                    SessionID         // Unique session identifier
+	ClientInfo            ClientInfo        // Information about the client
+	Created               time.Time         // When the session was created
+	LastActive            time.Time         // Last time the session was active
+	ProtocolVersion       string            // Negotiated protocol version
+	Metadata              map[string]string // Additional session metadata
+	ResourceSubscriptions []string          // List of resource URIs this session is subscribed to
 }
 
 // Env returns the environment variables from the client session

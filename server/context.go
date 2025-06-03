@@ -119,6 +119,11 @@ func NewContext(ctx context.Context, requestBytes []byte, server *serverImpl) (*
 		Session:      server.defaultSession, // ✅ Attach the current session
 	}
 
+	// If we have a default session, set the sessionID in metadata
+	if server.defaultSession != nil {
+		reqCtx.Metadata["sessionID"] = string(server.defaultSession.ID)
+	}
+
 	// Parse the request
 	request := &Request{}
 	if err := json.Unmarshal(requestBytes, request); err != nil {

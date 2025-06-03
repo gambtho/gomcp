@@ -22,8 +22,69 @@ type RootsCapability struct {
 	ListChanged bool `json:"listChanged"`
 }
 
+// ServerCapabilities represents the capabilities declared by the MCP server during initialization.
+type ServerCapabilities struct {
+	Logging      *LoggingCapability     `json:"logging,omitempty"`
+	Prompts      *PromptsCapability     `json:"prompts,omitempty"`
+	Resources    *ResourcesCapability   `json:"resources,omitempty"`
+	Tools        *ToolsCapability       `json:"tools,omitempty"`
+	Experimental map[string]interface{} `json:"experimental,omitempty"`
+}
+
+// LoggingCapability represents the server's logging capability.
+// Currently defined as an empty object in all MCP specification versions.
+type LoggingCapability struct {
+	// No fields defined in specification - empty object
+}
+
+// PromptsCapability represents the server's prompt template capability.
+type PromptsCapability struct {
+	ListChanged bool `json:"listChanged,omitempty"`
+}
+
+// ResourcesCapability represents the server's resource capability.
+type ResourcesCapability struct {
+	Subscribe   bool `json:"subscribe,omitempty"`
+	ListChanged bool `json:"listChanged,omitempty"`
+}
+
+// ToolsCapability represents the server's tool capability.
+type ToolsCapability struct {
+	ListChanged bool `json:"listChanged,omitempty"`
+}
+
+// ServerInfo represents information about the MCP server.
+type ServerInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
 // Tool is an alias to the shared mcp.Tool type for backward compatibility.
 type Tool = mcp.Tool
+
+// Resource represents a server resource that can be accessed via the MCP protocol.
+type Resource struct {
+	URI         string                 `json:"uri"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	MimeType    string                 `json:"mimeType,omitempty"`
+	Size        *int64                 `json:"size,omitempty"`
+	Annotations map[string]interface{} `json:"annotations,omitempty"`
+}
+
+// Prompt represents a server prompt template that can be used to generate messages.
+type Prompt struct {
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Arguments   []PromptArgument `json:"arguments,omitempty"`
+}
+
+// PromptArgument represents a parameter for a prompt template.
+type PromptArgument struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
 
 // BatchRequest represents a single request within a batch operation.
 type BatchRequest struct {

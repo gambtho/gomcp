@@ -144,11 +144,55 @@ func (c *clientImpl) initialize() error {
 	}
 
 	c.negotiatedVersion = protocolVersion.(string)
+
+	// Extract and store server capabilities
+	if capabilitiesData, exists := response.Result["capabilities"]; exists {
+		if capabilitiesJSON, err := json.Marshal(capabilitiesData); err == nil {
+			var serverCapabilities ServerCapabilities
+			if err := json.Unmarshal(capabilitiesJSON, &serverCapabilities); err == nil {
+				c.serverCapabilities = &serverCapabilities
+			} else {
+				c.logger.Warn("failed to parse server capabilities", "error", err)
+			}
+		}
+	}
+
+	// Extract and store server info
+	if serverInfoData, exists := response.Result["serverInfo"]; exists {
+		if serverInfoJSON, err := json.Marshal(serverInfoData); err == nil {
+			var serverInfo ServerInfo
+			if err := json.Unmarshal(serverInfoJSON, &serverInfo); err == nil {
+				c.serverInfo = &serverInfo
+			} else {
+				c.logger.Warn("failed to parse server info", "error", err)
+			}
+		}
+	}
+
+	// Extract server instructions (2025-03-26 only)
+	if instructions, exists := response.Result["instructions"]; exists {
+		if instructionsStr, ok := instructions.(string); ok {
+			c.serverInstructions = instructionsStr
+		}
+	}
+
 	c.initialized = true
 
 	c.logger.Info("initialized client connection",
 		"url", c.url,
-		"protocolVersion", c.negotiatedVersion)
+		"protocolVersion", c.negotiatedVersion,
+		"serverName", func() string {
+			if c.serverInfo != nil {
+				return c.serverInfo.Name
+			}
+			return "unknown"
+		}(),
+		"serverVersion", func() string {
+			if c.serverInfo != nil {
+				return c.serverInfo.Version
+			}
+			return "unknown"
+		}())
 
 	// Send initialized notification
 	if err := c.sendInitializedNotification(); err != nil {
@@ -230,9 +274,11 @@ func (c *clientImpl) Close() error {
 
 	// Emit client disconnected event
 	go func() {
-		events.Publish[events.ClientDisconnectedEvent](c.events, events.TopicClientDisconnected, events.ClientDisconnectedEvent{
+		if err := events.Publish[events.ClientDisconnectedEvent](c.events, events.TopicClientDisconnected, events.ClientDisconnectedEvent{
 			URL: c.url,
-		})
+		}); err != nil {
+			c.logger.Warn("failed to publish client disconnected event", "error", err)
+		}
 	}()
 
 	// Cancel the client context

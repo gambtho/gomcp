@@ -202,16 +202,87 @@ func setFieldValue(fieldValue reflect.Value, value interface{}) error {
 // Resource subscriptions allow clients to receive notifications when resource data changes.
 // Returns a response indicating whether the subscription was successful.
 func (s *serverImpl) ProcessResourceSubscribe(ctx *Context) (interface{}, error) {
-	// TODO: Implement resource subscription
-	return map[string]interface{}{"subscribed": true}, nil
+	// Parse the request parameters
+	var params struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(ctx.Request.Params, &params); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+
+	if params.URI == "" {
+		return nil, fmt.Errorf("uri parameter is required")
+	}
+
+	// Get session ID from context
+	sessionID, ok := ctx.Metadata["sessionID"].(string)
+	if !ok {
+		return nil, fmt.Errorf("session not found")
+	}
+
+	// Add subscription to the session
+	success := s.sessionManager.UpdateSession(SessionID(sessionID), func(session *ClientSession) {
+		// Check if already subscribed
+		for _, uri := range session.ResourceSubscriptions {
+			if uri == params.URI {
+				return // Already subscribed
+			}
+		}
+		// Add new subscription
+		session.ResourceSubscriptions = append(session.ResourceSubscriptions, params.URI)
+	})
+
+	if !success {
+		return nil, fmt.Errorf("session not found")
+	}
+
+	s.logger.Debug("client subscribed to resource", "uri", params.URI, "sessionID", sessionID)
+
+	return map[string]interface{}{}, nil
 }
 
 // ProcessResourceUnsubscribe processes a resource unsubscription request.
 // This allows clients to stop receiving notifications for a previously subscribed resource.
 // Returns a response indicating whether the unsubscription was successful.
 func (s *serverImpl) ProcessResourceUnsubscribe(ctx *Context) (interface{}, error) {
-	// TODO: Implement resource unsubscription
-	return map[string]interface{}{"unsubscribed": true}, nil
+	// Parse the request parameters
+	var params struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(ctx.Request.Params, &params); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+
+	if params.URI == "" {
+		return nil, fmt.Errorf("uri parameter is required")
+	}
+
+	// Get session ID from context
+	sessionID, ok := ctx.Metadata["sessionID"].(string)
+	if !ok {
+		return nil, fmt.Errorf("session not found")
+	}
+
+	// Remove subscription from the session
+	success := s.sessionManager.UpdateSession(SessionID(sessionID), func(session *ClientSession) {
+		// Find and remove the subscription
+		for i, uri := range session.ResourceSubscriptions {
+			if uri == params.URI {
+				// Remove by swapping with last element and truncating
+				session.ResourceSubscriptions[i] = session.ResourceSubscriptions[len(session.ResourceSubscriptions)-1]
+				session.ResourceSubscriptions = session.ResourceSubscriptions[:len(session.ResourceSubscriptions)-1]
+				return
+			}
+		}
+	})
+
+	if !success {
+		return nil, fmt.Errorf("session not found")
+	}
+
+	s.logger.Debug("client unsubscribed from resource", "uri", params.URI, "sessionID", sessionID)
+
+	return map[string]interface{}{}, nil
 }
 
 // ProcessResourceTemplatesList processes a resource templates list request.

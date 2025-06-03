@@ -3,6 +3,14 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/localrivet/gomcp.svg)](https://pkg.go.dev/github.com/localrivet/gomcp)
 [![Go Report Card](https://goreportcard.com/badge/github.com/localrivet/gomcp)](https://goreportcard.com/report/github.com/localrivet/gomcp)
 
+## MCP Specification Compliance
+
+![Draft Spec: 100%](https://img.shields.io/badge/Draft_Spec-100%25-brightgreen)
+![2024-11-05 Spec: 100%](https://img.shields.io/badge/2024--11--05_Spec-100%25-brightgreen)
+![2025-03-26 Spec: 100%](https://img.shields.io/badge/2025--03--26_Spec-100%25-brightgreen)
+
+**✅ Full compliance across all MCP specification versions** - See [COMPLIANCE.md](COMPLIANCE.md) for detailed verification.
+
 GoMCP is a complete Go implementation of the Model Context Protocol (MCP), designed to facilitate seamless interaction between applications and Large Language Models (LLMs). The library supports all specification versions with automatic negotiation and provides a clean, idiomatic API for both clients and servers.
 
 ## Table of Contents

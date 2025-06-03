@@ -71,6 +71,31 @@ func WithRequestTimeoutOption(d time.Duration) TimeoutOption {
 	return TimeoutOption{Duration: d}
 }
 
+// ResourceParamsOption creates a request option that adds parameters to a resource request.
+type ResourceParamsOption struct {
+	Params map[string]interface{}
+}
+
+func (r ResourceParamsOption) apply() {}
+
+// WithResourceParams creates a ResourceParamsOption for adding parameters to GetResource requests.
+//
+// This allows passing additional parameters alongside the URI in resources/read requests
+// as specified in the MCP protocol.
+//
+// Example:
+//
+//	resource, err := client.GetResource("/api/users",
+//	    client.WithResourceParams(map[string]interface{}{
+//	        "include_posts": true,
+//	        "limit": 50,
+//	    }),
+//	    client.WithRequestTimeoutOption(10*time.Second),
+//	)
+func WithResourceParams(params map[string]interface{}) ResourceParamsOption {
+	return ResourceParamsOption{Params: params}
+}
+
 // Client represents an MCP client for communicating with MCP servers.
 // It provides methods for all MCP operations including tool calls, resource access,
 // prompt rendering, root management, and sampling functionality.
@@ -103,6 +128,14 @@ type Client interface {
 	//
 	// For timeout support:
 	//  resource, err := client.GetResource("/files/readme.txt",
+	//      client.WithRequestTimeoutOption(5*time.Second))
+	//
+	// For passing additional parameters:
+	//  resource, err := client.GetResource("/api/users",
+	//      client.WithResourceParams(map[string]interface{}{
+	//          "include_posts": true,
+	//          "limit": 50,
+	//      }),
 	//      client.WithRequestTimeoutOption(5*time.Second))
 	GetResource(path string, opts ...RequestOption) (interface{}, error)
 
@@ -185,6 +218,36 @@ type Client interface {
 	//      fmt.Printf("Schema: %+v\n", tool.InputSchema)
 	//  }
 	ListTools() ([]Tool, error)
+
+	// ListResources retrieves the list of available resources from the server.
+	//
+	// This method calls the resources/list endpoint as specified in the MCP protocol.
+	// It automatically handles pagination internally and returns all available resources.
+	// The returned slice contains all available resources with their URIs, names,
+	// descriptions, and MIME types, which can be used for resource discovery.
+	//
+	// Example:
+	//  resources, err := client.ListResources()
+	//  for _, resource := range resources {
+	//      fmt.Printf("Resource: %s - %s\n", resource.Name, resource.Description)
+	//      fmt.Printf("URI: %s, MIME Type: %s\n", resource.URI, resource.MimeType)
+	//  }
+	ListResources(opts ...RequestOption) ([]Resource, error)
+
+	// ListPrompts retrieves the list of available prompts from the server.
+	//
+	// This method calls the prompts/list endpoint as specified in the MCP protocol.
+	// It automatically handles pagination internally and returns all available prompts.
+	// The returned slice contains all available prompts with their names, descriptions,
+	// and argument specifications, which can be used for prompt discovery.
+	//
+	// Example:
+	//  prompts, err := client.ListPrompts()
+	//  for _, prompt := range prompts {
+	//      fmt.Printf("Prompt: %s - %s\n", prompt.Name, prompt.Description)
+	//      fmt.Printf("Arguments: %d\n", len(prompt.Arguments))
+	//  }
+	ListPrompts(opts ...RequestOption) ([]Prompt, error)
 
 	// Version returns the negotiated protocol version with the server.
 	//
@@ -307,6 +370,92 @@ type Client interface {
 	//      }, 3).
 	//      Execute()
 	BatchBuilder() *BatchRequestBuilder
+
+	// GetServerCapabilities returns the server's declared capabilities from initialization.
+	//
+	// This method returns the capabilities that the server declared during the MCP
+	// initialization handshake. These capabilities indicate which optional protocol
+	// features are supported by the server, such as resources, prompts, tools, and
+	// logging. Returns nil if the client has not been initialized yet.
+	//
+	// Example:
+	//  caps := client.GetServerCapabilities()
+	//  if caps != nil && caps.Resources != nil {
+	//      fmt.Println("Server supports resources")
+	//      if caps.Resources.Subscribe {
+	//          fmt.Println("Server supports resource subscriptions")
+	//      }
+	//  }
+	GetServerCapabilities() *ServerCapabilities
+
+	// GetServerInfo returns the server's identification information from initialization.
+	//
+	// This method returns the server information (name, version) that was provided
+	// during the MCP initialization handshake. Returns nil if the client has not
+	// been initialized yet.
+	//
+	// Example:
+	//  info := client.GetServerInfo()
+	//  if info != nil {
+	//      fmt.Printf("Connected to %s version %s\n", info.Name, info.Version)
+	//  }
+	GetServerInfo() *ServerInfo
+
+	// GetServerInstructions returns optional instructions provided by the server.
+	//
+	// This method returns any optional instructions that the server provided during
+	// initialization (available in MCP protocol version 2025-03-26). Returns an
+	// empty string if no instructions were provided or if using an older protocol version.
+	//
+	// Example:
+	//  instructions := client.GetServerInstructions()
+	//  if instructions != "" {
+	//      fmt.Printf("Server instructions: %s\n", instructions)
+	//  }
+	GetServerInstructions() string
+
+	// HasCapability checks if the server supports a specific top-level capability.
+	//
+	// This is a convenience method for checking server capability support. The
+	// capability parameter should be one of: "logging", "prompts", "resources",
+	// "tools", or "experimental". Returns false if the client has not been
+	// initialized or if the capability is not supported.
+	//
+	// Example:
+	//  if client.HasCapability("resources") {
+	//      resources, err := client.ListResources()
+	//      // ... handle resources
+	//  }
+	HasCapability(capability string) bool
+
+	// SupportsResourceSubscriptions checks if the server supports resource change subscriptions.
+	//
+	// This is a convenience method for checking if the server's resource capability
+	// includes the "subscribe" sub-capability, which allows clients to receive
+	// notifications when specific resources change. Returns false if the server
+	// doesn't support resources or subscriptions.
+	//
+	// Example:
+	//  if client.SupportsResourceSubscriptions() {
+	//      // Can subscribe to resource changes
+	//  }
+	SupportsResourceSubscriptions() bool
+
+	// SupportsListChangedNotifications checks if the server supports list change notifications.
+	//
+	// This method checks if the server supports notifications when the list of items
+	// of a specific type changes. The resourceType parameter should be one of:
+	// "prompts", "resources", or "tools". Returns false if the server doesn't
+	// support the specified resource type or list change notifications.
+	//
+	// Example:
+	//  if client.SupportsListChangedNotifications("resources") {
+	//      // Server will notify when the resource list changes
+	//  }
+	SupportsListChangedNotifications(resourceType string) bool
+
+	// Ping sends a ping request to the server to verify connection health.
+	Ping() error
 }
 
 // clientImpl is the concrete implementation of the Client interface.
@@ -328,6 +477,12 @@ type clientImpl struct {
 	rootsMu           sync.RWMutex
 	capabilities      ClientCapabilities
 	samplingHandler   SamplingHandler
+
+	// Server capabilities and info (received during initialization)
+	// Set once during initialization, protected by c.mu, never change after
+	serverCapabilities *ServerCapabilities
+	serverInfo         *ServerInfo
+	serverInstructions string
 
 	// Server management
 	serverRegistry *ServerRegistry
@@ -394,9 +549,12 @@ func NewClient(url string, options ...Option) (Client, error) {
 
 	// Emit client initializing event
 	go func() {
-		events.Publish[events.ClientInitializingEvent](c.events, events.TopicClientInitializing, events.ClientInitializingEvent{
+		if err := events.Publish[events.ClientInitializingEvent](c.events, events.TopicClientInitializing, events.ClientInitializingEvent{
 			URL: url,
-		})
+		}); err != nil {
+			// Log the error but don't fail initialization
+			c.logger.Warn("failed to publish client initializing event", "error", err)
+		}
 	}()
 
 	// If no transport is provided, one will be selected based on the URL
@@ -406,18 +564,22 @@ func NewClient(url string, options ...Option) (Client, error) {
 	if err := c.Connect(); err != nil {
 		cancel() // Clean up resources
 		go func() {
-			events.Publish[events.ClientErrorEvent](c.events, events.TopicClientError, events.ClientErrorEvent{
+			if pubErr := events.Publish[events.ClientErrorEvent](c.events, events.TopicClientError, events.ClientErrorEvent{
 				Error: err.Error(),
-			})
+			}); pubErr != nil {
+				c.logger.Warn("failed to publish client error event", "error", pubErr)
+			}
 		}()
 		return nil, fmt.Errorf("failed to connect to MCP server: %w", err)
 	}
 
 	// Emit client initialized event
 	go func() {
-		events.Publish[events.ClientInitializedEvent](c.events, events.TopicClientInitialized, events.ClientInitializedEvent{
+		if err := events.Publish[events.ClientInitializedEvent](c.events, events.TopicClientInitialized, events.ClientInitializedEvent{
 			URL: url,
-		})
+		}); err != nil {
+			c.logger.Warn("failed to publish client initialized event", "error", err)
+		}
 	}()
 
 	return c, nil
@@ -461,9 +623,19 @@ func (c *clientImpl) CallTool(name string, args map[string]interface{}, opts ...
 // GetResource retrieves a resource from the server.
 func (c *clientImpl) GetResource(uri string, opts ...RequestOption) (interface{}, error) {
 	timeout := c.extractTimeout(opts...)
-	return c.sendRequestWithTimeout("resources/read", map[string]interface{}{
+	resourceParams := c.extractResourceParams(opts...)
+
+	// Build request parameters starting with the URI
+	params := map[string]interface{}{
 		"uri": uri,
-	}, timeout)
+	}
+
+	// Add any additional resource parameters if provided
+	for key, value := range resourceParams {
+		params[key] = value
+	}
+
+	return c.sendRequestWithTimeout("resources/read", params, timeout)
 }
 
 // GetPrompt retrieves a prompt from the server.
@@ -491,6 +663,18 @@ func (c *clientImpl) extractTimeout(opts ...RequestOption) time.Duration {
 		}
 	}
 	return c.requestTimeout
+}
+
+// extractResourceParams extracts resource parameters from request options.
+func (c *clientImpl) extractResourceParams(opts ...RequestOption) map[string]interface{} {
+	if len(opts) > 0 {
+		for _, opt := range opts {
+			if params, ok := opt.(ResourceParamsOption); ok {
+				return params.Params
+			}
+		}
+	}
+	return nil
 }
 
 // GetRoot retrieves the root resource from the server.
@@ -559,6 +743,139 @@ func (c *clientImpl) ListTools() ([]Tool, error) {
 	return allTools, nil
 }
 
+// ListResources retrieves the list of available resources from the server.
+func (c *clientImpl) ListResources(opts ...RequestOption) ([]Resource, error) {
+	var allResources []Resource
+	cursor := ""
+
+	for {
+		// Prepare parameters for the request
+		var params map[string]interface{}
+		if cursor != "" {
+			params = map[string]interface{}{
+				"cursor": cursor,
+			}
+		}
+
+		// Send the resources/list request
+		result, err := c.sendRequest("resources/list", params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list resources: %w", err)
+		}
+
+		// Parse the response
+		response, ok := result.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid response format from resources/list")
+		}
+
+		// Extract resources from the response
+		resourcesData, ok := response["resources"].([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid resources format in response")
+		}
+
+		// Convert each resource to our Resource struct
+		for _, resourceData := range resourcesData {
+			resourceMap, ok := resourceData.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			resource := Resource{
+				URI:         getString(resourceMap, "uri"),
+				Name:        getString(resourceMap, "name"),
+				Description: getString(resourceMap, "description"),
+				MimeType:    getString(resourceMap, "mimeType"),
+				Annotations: getMap(resourceMap, "annotations"),
+			}
+
+			allResources = append(allResources, resource)
+		}
+
+		// Check if there are more pages
+		nextCursor, hasMore := response["nextCursor"].(string)
+		if !hasMore || nextCursor == "" {
+			break
+		}
+		cursor = nextCursor
+	}
+
+	return allResources, nil
+}
+
+// ListPrompts retrieves the list of available prompts from the server.
+//
+// This method calls the prompts/list endpoint as specified in the MCP protocol.
+// It automatically handles pagination internally and returns all available prompts.
+// The returned slice contains all available prompts with their names, descriptions,
+// and argument specifications, which can be used for prompt discovery.
+//
+// Example:
+//
+//	prompts, err := client.ListPrompts()
+//	for _, prompt := range prompts {
+//	    fmt.Printf("Prompt: %s - %s\n", prompt.Name, prompt.Description)
+//	    fmt.Printf("Arguments: %d\n", len(prompt.Arguments))
+//	}
+func (c *clientImpl) ListPrompts(opts ...RequestOption) ([]Prompt, error) {
+	var allPrompts []Prompt
+	cursor := ""
+
+	for {
+		// Prepare parameters for the request
+		var params map[string]interface{}
+		if cursor != "" {
+			params = map[string]interface{}{
+				"cursor": cursor,
+			}
+		}
+
+		// Send the prompts/list request
+		result, err := c.sendRequest("prompts/list", params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list prompts: %w", err)
+		}
+
+		// Parse the response
+		response, ok := result.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid response format from prompts/list")
+		}
+
+		// Extract prompts from the response
+		promptsData, ok := response["prompts"].([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid prompts format in response")
+		}
+
+		// Convert each prompt to our Prompt struct
+		for _, promptData := range promptsData {
+			promptMap, ok := promptData.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			prompt := Prompt{
+				Name:        getString(promptMap, "name"),
+				Description: getString(promptMap, "description"),
+				Arguments:   getPromptArguments(promptMap, "arguments"),
+			}
+
+			allPrompts = append(allPrompts, prompt)
+		}
+
+		// Check if there are more pages
+		nextCursor, hasMore := response["nextCursor"].(string)
+		if !hasMore || nextCursor == "" {
+			break
+		}
+		cursor = nextCursor
+	}
+
+	return allPrompts, nil
+}
+
 // Helper functions for safe type conversion
 func getString(m map[string]interface{}, key string) string {
 	if val, ok := m[key].(string); ok {
@@ -572,6 +889,33 @@ func getMap(m map[string]interface{}, key string) map[string]interface{} {
 		return val
 	}
 	return nil
+}
+
+// getPromptArguments safely converts prompt arguments from interface{} to []PromptArgument.
+func getPromptArguments(m map[string]interface{}, key string) []PromptArgument {
+	if argsData, ok := m[key].([]interface{}); ok {
+		var args []PromptArgument
+		for _, argData := range argsData {
+			if argMap, ok := argData.(map[string]interface{}); ok {
+				arg := PromptArgument{
+					Name:        getString(argMap, "name"),
+					Description: getString(argMap, "description"),
+					Required:    getBool(argMap, "required"),
+				}
+				args = append(args, arg)
+			}
+		}
+		return args
+	}
+	return nil
+}
+
+// getBool safely extracts a boolean value from a map.
+func getBool(m map[string]interface{}, key string) bool {
+	if val, ok := m[key].(bool); ok {
+		return val
+	}
+	return false
 }
 
 // SendBatch sends multiple requests to the server in a single batch operation.
@@ -693,4 +1037,72 @@ func (c *clientImpl) sendBatchRequestWithTimeout(requests []map[string]interface
 // Events returns the events subject for subscribing to client events.
 func (c *clientImpl) Events() *events.Subject {
 	return c.events
+}
+
+// Ping sends a ping request to the server to verify connection health.
+func (c *clientImpl) Ping() error {
+	_, err := c.sendRequestWithTimeout("ping", nil, c.requestTimeout)
+	return err
+}
+
+// GetServerCapabilities returns the server's declared capabilities from initialization.
+func (c *clientImpl) GetServerCapabilities() *ServerCapabilities {
+	return c.serverCapabilities
+}
+
+// GetServerInfo returns the server's identification information from initialization.
+func (c *clientImpl) GetServerInfo() *ServerInfo {
+	return c.serverInfo
+}
+
+// GetServerInstructions returns optional instructions provided by the server.
+func (c *clientImpl) GetServerInstructions() string {
+	return c.serverInstructions
+}
+
+// HasCapability checks if the server supports a specific top-level capability.
+func (c *clientImpl) HasCapability(capability string) bool {
+	if c.serverCapabilities == nil {
+		return false
+	}
+
+	switch capability {
+	case "logging":
+		return c.serverCapabilities.Logging != nil
+	case "prompts":
+		return c.serverCapabilities.Prompts != nil
+	case "resources":
+		return c.serverCapabilities.Resources != nil
+	case "tools":
+		return c.serverCapabilities.Tools != nil
+	case "experimental":
+		return c.serverCapabilities.Experimental != nil
+	default:
+		return false
+	}
+}
+
+// SupportsResourceSubscriptions checks if the server supports resource change subscriptions.
+func (c *clientImpl) SupportsResourceSubscriptions() bool {
+	return c.serverCapabilities != nil &&
+		c.serverCapabilities.Resources != nil &&
+		c.serverCapabilities.Resources.Subscribe
+}
+
+// SupportsListChangedNotifications checks if the server supports list change notifications.
+func (c *clientImpl) SupportsListChangedNotifications(resourceType string) bool {
+	if c.serverCapabilities == nil {
+		return false
+	}
+
+	switch resourceType {
+	case "prompts":
+		return c.serverCapabilities.Prompts != nil && c.serverCapabilities.Prompts.ListChanged
+	case "resources":
+		return c.serverCapabilities.Resources != nil && c.serverCapabilities.Resources.ListChanged
+	case "tools":
+		return c.serverCapabilities.Tools != nil && c.serverCapabilities.Tools.ListChanged
+	default:
+		return false
+	}
 }

@@ -4,6 +4,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -617,6 +618,16 @@ func NewServer(name string, options ...Option) Server {
 		events.WithBufferSize(1024),
 		events.WithReplay(100),
 	)
+
+	// Subscribe to ResourceChangedEvent to automatically send notifications to clients
+	events.Subscribe[events.ResourceChangedEvent](s.events, events.TopicResourceChanged,
+		func(ctx context.Context, event events.ResourceChangedEvent) error {
+			// Send resource list changed notification to all clients
+			if err := s.SendResourcesListChangedNotification(); err != nil {
+				s.logger.Error("failed to send resource change notification", "error", err, "uri", event.URI)
+			}
+			return nil
+		})
 
 	return s
 }

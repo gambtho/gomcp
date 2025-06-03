@@ -76,10 +76,14 @@ func TestTypeSafety(t *testing.T) {
 	})
 
 	// Publish TestEvent - should only reach TestEvent subscriber
-	Publish[TestEvent](subject, "test.events", TestEvent{Message: "test", Value: 1})
+	if err := Publish[TestEvent](subject, "test.events", TestEvent{Message: "test", Value: 1}); err != nil {
+		t.Errorf("Failed to publish TestEvent: %v", err)
+	}
 
 	// Publish ServerEvent - should only reach ServerEvent subscriber
-	Publish[ServerEvent](subject, "server.events", ServerEvent{Name: "test-server", Port: 8080})
+	if err := Publish[ServerEvent](subject, "server.events", ServerEvent{Name: "test-server", Port: 8080}); err != nil {
+		t.Errorf("Failed to publish ServerEvent: %v", err)
+	}
 
 	// Verify only correct events were received
 	select {
@@ -124,7 +128,9 @@ func TestConnectionSpecificEvents(t *testing.T) {
 	})
 
 	// Publish to specific connections
-	Publish[TestEvent](subject, "conn.events", TestEvent{Message: "conn1", Value: 1}, conn1)
+	if err := Publish[TestEvent](subject, "conn.events", TestEvent{Message: "conn1", Value: 1}, conn1); err != nil {
+		t.Errorf("Failed to publish TestEvent to conn1: %v", err)
+	}
 	Publish[TestEvent](subject, "conn.events", TestEvent{Message: "conn2", Value: 2}, conn2)
 
 	// Verify events received with correct connections

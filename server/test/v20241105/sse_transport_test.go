@@ -117,7 +117,11 @@ func testSSEEndpointDiscovery_v20241105(t *testing.T, address string) {
 			line, err := reader.ReadBytes('\n')
 			if err != nil {
 				if err == io.EOF {
-					break
+					// End of stream reached without finding endpoint
+					if endpointURL == "" {
+						t.Error("Did not receive endpoint event from SSE stream")
+					}
+					return
 				}
 				t.Fatalf("Error reading SSE stream: %v", err)
 			}
@@ -148,10 +152,6 @@ func testSSEEndpointDiscovery_v20241105(t *testing.T, address string) {
 				}
 			}
 		}
-	}
-
-	if endpointURL == "" {
-		t.Error("Did not receive endpoint event from SSE stream")
 	}
 }
 

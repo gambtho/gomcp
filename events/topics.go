@@ -20,6 +20,7 @@ const (
 	// Operation events (can be emitted by both client and server for same operations)
 	TopicToolExecuted     = "tool.executed"     // Tool was executed
 	TopicResourceAccessed = "resource.accessed" // Resource was accessed
+	TopicResourceChanged  = "resource.changed"  // Resource was modified (create/update/delete)
 	TopicPromptExecuted   = "prompt.executed"   // Prompt was executed
 
 	// Error events
@@ -157,4 +158,12 @@ type PromptExecutedEvent struct {
 	Success      bool                   `json:"success"`
 	ErrorMessage string                 `json:"errorMessage,omitempty"`
 	MessageCount int                    `json:"messageCount,omitempty"`
+}
+
+// ResourceChangedEvent is emitted when a resource changes (created, modified, or deleted)
+type ResourceChangedEvent struct {
+	URI       string    `json:"uri"`
+	Action    string    `json:"action"` // "created", "modified", "deleted"
+	ChangedAt time.Time `json:"changedAt"`
+	SessionID string    `json:"sessionId,omitempty"` // Session that made the change (if applicable)
 }
