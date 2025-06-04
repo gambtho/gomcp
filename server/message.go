@@ -204,6 +204,8 @@ func handleSingleMessage(s *serverImpl, message []byte) ([]byte, error) {
 	case "notifications/tools/list_changed":
 	case "notifications/prompts/list_changed":
 	case "notifications/roots/list_changed":
+		// Handle roots list changed notification by fetching updated roots from client
+		s.fetchWorkspaceRoots()
 		// Notifications don't need responses
 		return nil, nil
 
