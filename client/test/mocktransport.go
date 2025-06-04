@@ -704,6 +704,33 @@ func SetupMockTransport(version string) *MockTransport {
 		IsRequestMethod("prompts/get"),
 	)
 
+	// Add default response for prompts/list
+	defaultPromptsListResponse := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      0, // Will be overridden by actual request ID
+		"result": map[string]interface{}{
+			"prompts": []interface{}{
+				map[string]interface{}{
+					"name":        "default-prompt",
+					"description": "Default prompt for testing",
+					"arguments": []interface{}{
+						map[string]interface{}{
+							"name":        "input",
+							"description": "Default input parameter",
+							"required":    true,
+						},
+					},
+				},
+			},
+		},
+	}
+	promptsListJSON, _ := json.Marshal(defaultPromptsListResponse)
+	m.QueueConditionalResponse(
+		promptsListJSON,
+		nil,
+		IsRequestMethod("prompts/list"),
+	)
+
 	// Add default response for sampling/createMessage
 	defaultSamplingResponse := map[string]interface{}{
 		"jsonrpc": "2.0",
