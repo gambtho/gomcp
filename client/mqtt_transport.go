@@ -22,22 +22,18 @@ type MQTTTransport struct {
 	serverTopic         string
 	clientTopic         string
 	qos                 byte
-	connected           bool
-	connMu              sync.RWMutex
 	username            string
 	password            string
 	cleanSession        bool
 	tlsConfig           *mqtt.TLSConfig
 	requestTimeout      time.Duration
 	connectionTimeout   time.Duration
-	notificationChan    chan mqttNotification
 	notificationHandler func(method string, params []byte)
 	done                chan struct{}
-}
 
-type mqttNotification struct {
-	Method string
-	Params []byte
+	// ONE way to handle responses
+	pendingRequests    map[interface{}]chan []byte
+	pendingRequestsMux sync.RWMutex
 }
 
 // MQTTTransportOption represents a configuration option for the MQTT transport
@@ -54,8 +50,8 @@ func NewMQTTTransport(brokerURL string, options ...MQTTTransportOption) *MQTTTra
 		cleanSession:      true,
 		requestTimeout:    30 * time.Second,
 		connectionTimeout: 10 * time.Second,
-		notificationChan:  make(chan mqttNotification, 100),
 		done:              make(chan struct{}),
+		pendingRequests:   make(map[interface{}]chan []byte),
 	}
 
 	// Generate a random client ID if none is provided
@@ -94,13 +90,6 @@ func (t *MQTTTransport) Connect() error {
 		slog.Default().Debug("TLS configuration provided but not yet implemented")
 	}
 
-	// Set connection lost handler
-	opts.SetConnectionLostHandler(func(client paho.Client, err error) {
-		t.connMu.Lock()
-		t.connected = false
-		t.connMu.Unlock()
-	})
-
 	// Create MQTT client
 	t.client = paho.NewClient(opts)
 
@@ -109,18 +98,12 @@ func (t *MQTTTransport) Connect() error {
 		return token.Error()
 	}
 
-	t.connMu.Lock()
-	t.connected = true
-	t.connMu.Unlock()
-
-	// Subscribe to client's response topic
+	// ONE subscription to handle ALL responses
 	responseTopic := fmt.Sprintf("%s/%s/%s", t.topicPrefix, t.clientTopic, t.clientID)
+
 	if token := t.client.Subscribe(responseTopic, t.qos, t.messageHandler); token.Wait() && token.Error() != nil {
 		return token.Error()
 	}
-
-	// Start notification handler goroutine
-	go t.handleNotifications()
 
 	return nil
 }
@@ -148,15 +131,11 @@ func (t *MQTTTransport) ConnectWithContext(ctx context.Context) error {
 func (t *MQTTTransport) Disconnect() error {
 	close(t.done)
 
-	t.connMu.Lock()
-	defer t.connMu.Unlock()
-
 	// Disconnect MQTT client
 	if t.client != nil && t.client.IsConnected() {
 		t.client.Disconnect(250) // Disconnect with 250ms timeout
 	}
 
-	t.connected = false
 	return nil
 }
 
@@ -166,12 +145,9 @@ func (t *MQTTTransport) Send(message []byte) ([]byte, error) {
 }
 
 // SendWithContext implements the Transport.SendWithContext method.
+// ONE way to send and receive responses
 func (t *MQTTTransport) SendWithContext(ctx context.Context, message []byte) ([]byte, error) {
-	t.connMu.RLock()
-	connected := t.connected
-	t.connMu.RUnlock()
-
-	if !connected {
+	if !t.client.IsConnected() {
 		return nil, errors.New("not connected to MQTT broker")
 	}
 
@@ -182,40 +158,30 @@ func (t *MQTTTransport) SendWithContext(ctx context.Context, message []byte) ([]
 	}
 
 	requestID := requestMap["id"]
+	if requestID == nil {
+		return nil, errors.New("request missing ID field")
+	}
 
-	// Define the listener for responses
+	// Create response channel for this request
 	responseCh := make(chan []byte, 1)
-	errorCh := make(chan error, 1)
 
-	// Create a message handler for this request
-	responseHandler := func(client paho.Client, msg paho.Message) {
-		var responseMap map[string]interface{}
-		if err := json.Unmarshal(msg.Payload(), &responseMap); err != nil {
-			errorCh <- fmt.Errorf("invalid JSON response: %w", err)
-			return
-		}
+	// Register the request
+	t.pendingRequestsMux.Lock()
+	t.pendingRequests[requestID] = responseCh
+	t.pendingRequestsMux.Unlock()
 
-		// Check if the response ID matches the request ID
-		if responseMap["id"] == requestID {
-			responseCh <- msg.Payload()
-		}
-	}
-
-	// Subscribe to response topic for this specific request
-	responseTopic := fmt.Sprintf("%s/%s/%s", t.topicPrefix, t.clientTopic, t.clientID)
-	token := t.client.Subscribe(responseTopic, t.qos, responseHandler)
-	if token.Wait() && token.Error() != nil {
-		return nil, token.Error()
-	}
-
-	// Ensure we unsubscribe when done
+	// Clean up when done
 	defer func() {
-		t.client.Unsubscribe(responseTopic)
+		t.pendingRequestsMux.Lock()
+		delete(t.pendingRequests, requestID)
+		t.pendingRequestsMux.Unlock()
+		close(responseCh)
 	}()
 
-	// Send the request
-	requestTopic := fmt.Sprintf("%s/%s", t.topicPrefix, t.serverTopic)
-	token = t.client.Publish(requestTopic, t.qos, false, message)
+	// Send the request with client ID in topic for response routing
+	requestTopic := fmt.Sprintf("%s/%s/%s", t.topicPrefix, t.serverTopic, t.clientID)
+
+	token := t.client.Publish(requestTopic, t.qos, false, message)
 	if token.Wait() && token.Error() != nil {
 		return nil, token.Error()
 	}
@@ -224,8 +190,6 @@ func (t *MQTTTransport) SendWithContext(ctx context.Context, message []byte) ([]
 	select {
 	case response := <-responseCh:
 		return response, nil
-	case err := <-errorCh:
-		return nil, err
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -246,42 +210,37 @@ func (t *MQTTTransport) RegisterNotificationHandler(handler func(method string, 
 	t.notificationHandler = handler
 }
 
-// messageHandler processes incoming MQTT messages
+// messageHandler processes ALL incoming MQTT messages - ONE way to handle everything
 func (t *MQTTTransport) messageHandler(client paho.Client, msg paho.Message) {
+
 	var jsonMsg map[string]interface{}
 	if err := json.Unmarshal(msg.Payload(), &jsonMsg); err != nil {
 		return // Invalid JSON
 	}
 
-	// Check if this is a notification (no ID field)
-	if _, hasID := jsonMsg["id"]; !hasID {
-		if method, ok := jsonMsg["method"].(string); ok {
-			if params, ok := jsonMsg["params"]; ok {
-				// Handle notification
-				if t.notificationHandler != nil {
-					var paramsBytes []byte
-					if params != nil {
-						paramsBytes, _ = json.Marshal(params)
-					}
-					t.notificationChan <- mqttNotification{
-						Method: method,
-						Params: paramsBytes,
-					}
-				}
+	// Check if this is a response (has ID field)
+	if requestID, hasID := jsonMsg["id"]; hasID {
+		// Handle response
+		t.pendingRequestsMux.RLock()
+		responseCh, exists := t.pendingRequests[requestID]
+		t.pendingRequestsMux.RUnlock()
+
+		if exists {
+			select {
+			case responseCh <- msg.Payload():
+			default:
+				// Channel full or closed, ignore
 			}
 		}
-	}
-}
-
-// handleNotifications processes notifications in a separate goroutine
-func (t *MQTTTransport) handleNotifications() {
-	for {
-		select {
-		case <-t.done:
-			return
-		case notification := <-t.notificationChan:
+	} else {
+		// Handle notification (no ID field)
+		if method, ok := jsonMsg["method"].(string); ok {
 			if t.notificationHandler != nil {
-				t.notificationHandler(notification.Method, notification.Params)
+				var paramsBytes []byte
+				if params, ok := jsonMsg["params"]; ok && params != nil {
+					paramsBytes, _ = json.Marshal(params)
+				}
+				t.notificationHandler(method, paramsBytes)
 			}
 		}
 	}

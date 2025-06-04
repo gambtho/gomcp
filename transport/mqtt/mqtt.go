@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
@@ -45,15 +44,10 @@ type Transport struct {
 	password     string
 	cleanSession bool
 	tlsConfig    *TLSConfig
-	clientsMu    sync.RWMutex
-	clients      map[string]paho.Client
 	connected    bool
-	connMu       sync.RWMutex
-	subsMu       sync.RWMutex
 	subs         map[string]byte
 	done         chan struct{}
 	handler      transport.MessageHandler
-	handlerMu    sync.RWMutex
 }
 
 // TLSConfig holds TLS configuration for MQTT connections
@@ -78,7 +72,6 @@ func NewTransport(brokerURL string, isServer bool, options ...MQTTOption) *Trans
 		clientTopic:  DefaultClientTopic,
 		qos:          DefaultQoS,
 		cleanSession: true,
-		clients:      make(map[string]paho.Client),
 		subs:         make(map[string]byte),
 		done:         make(chan struct{}),
 	}
@@ -129,22 +122,15 @@ func (t *Transport) Initialize() error {
 
 	// Set connection lost handler
 	opts.SetConnectionLostHandler(func(client paho.Client, err error) {
-		t.connMu.Lock()
 		t.connected = false
-		t.connMu.Unlock()
 		// Could log the connection loss here
 	})
 
 	// Set OnConnect handler to resubscribe to topics on reconnection
 	opts.SetOnConnectHandler(func(client paho.Client) {
-		t.connMu.Lock()
 		t.connected = true
-		t.connMu.Unlock()
 
 		// Resubscribe to topics
-		t.subsMu.RLock()
-		defer t.subsMu.RUnlock()
-
 		for topic, qos := range t.subs {
 			if err := t.subscribe(topic, qos); err != nil {
 				// Log error but continue with other subscriptions
@@ -166,14 +152,20 @@ func (t *Transport) Start() error {
 		return token.Error()
 	}
 
-	t.connMu.Lock()
 	t.connected = true
-	t.connMu.Unlock()
 
-	// Server subscribes to request topics
+	// Server subscribes to request topics with wildcard to catch all client requests
 	if t.isServer {
-		requestTopic := t.getServerTopic("#")
+		requestTopic := fmt.Sprintf("%s/%s/+", t.topicPrefix, t.serverTopic)
+
 		if err := t.subscribe(requestTopic, t.qos); err != nil {
+			return err
+		}
+	} else {
+		// Client subscribes to its specific response topic
+		responseTopic := t.getClientTopic(t.clientID)
+
+		if err := t.subscribe(responseTopic, t.qos); err != nil {
 			return err
 		}
 	}
@@ -185,35 +177,17 @@ func (t *Transport) Start() error {
 func (t *Transport) Stop() error {
 	close(t.done)
 
-	t.clientsMu.Lock()
-	defer t.clientsMu.Unlock()
-
 	// Disconnect client
 	if t.client != nil && t.client.IsConnected() {
 		t.client.Disconnect(250) // Disconnect with 250ms timeout
 	}
-
-	// Disconnect all tracked clients (for server mode)
-	for _, client := range t.clients {
-		if client.IsConnected() {
-			client.Disconnect(250)
-		}
-	}
-
-	t.connMu.Lock()
-	t.connected = false
-	t.connMu.Unlock()
 
 	return nil
 }
 
 // Send sends a message over the transport
 func (t *Transport) Send(message []byte) error {
-	t.connMu.RLock()
-	connected := t.connected
-	t.connMu.RUnlock()
-
-	if !connected {
+	if !t.connected {
 		return errors.New("not connected to MQTT broker")
 	}
 
@@ -221,7 +195,7 @@ func (t *Transport) Send(message []byte) error {
 	if t.isServer {
 		topic = t.getClientTopic("all") // Broadcast to all clients
 	} else {
-		topic = t.getServerTopic("") // Send to server
+		topic = t.getServerTopic(t.clientID) // Send to server with client ID in topic
 	}
 
 	token := t.client.Publish(topic, t.qos, false, message)
@@ -237,45 +211,40 @@ func (t *Transport) Receive() ([]byte, error) {
 	return nil, errors.New("not implemented: MQTT transport uses subscription callbacks")
 }
 
-// getServerTopic returns the full topic for sending to server
-func (t *Transport) getServerTopic(clientID string) string {
-	if clientID == "" {
-		return fmt.Sprintf("%s/%s", t.topicPrefix, t.serverTopic)
-	}
-	return fmt.Sprintf("%s/%s/%s", t.topicPrefix, t.serverTopic, clientID)
-}
-
-// getClientTopic returns the full topic for sending to clients
-func (t *Transport) getClientTopic(clientID string) string {
-	if clientID == "all" {
-		return fmt.Sprintf("%s/%s/#", t.topicPrefix, t.clientTopic)
-	}
-	return fmt.Sprintf("%s/%s/%s", t.topicPrefix, t.clientTopic, clientID)
-}
+// Topic structure:
+// - Client sends requests to: {topicPrefix}/requests
+// - Server receives requests on: {topicPrefix}/requests
+// - Server sends responses to: {topicPrefix}/responses
+// - Client receives responses on: {topicPrefix}/responses
+// - Server sends requests to: {topicPrefix}/server-requests
+// - Client receives server requests on: {topicPrefix}/server-requests
+// - Client sends responses to server requests: {topicPrefix}/client-responses
+// - Server receives client responses on: {topicPrefix}/client-responses
 
 // messageHandler processes incoming MQTT messages
 func (t *Transport) messageHandler(client paho.Client, msg paho.Message) {
+
 	if handler := t.handler; handler != nil {
 		response, err := handler(msg.Payload())
-		if err == nil && response != nil {
-			// Extract the client ID from the topic to respond directly to that client
-			// This is a simple implementation that assumes topics like "mcp/requests/client-123"
-			// For more complex topic structures, parsing would need to be more sophisticated
+		if err != nil {
+			slog.Error("message handler error", "error", err)
+		} else if response != nil && t.isServer {
+			// Extract client ID from the topic to route response securely
+			clientID := extractClientIDFromTopic(msg.Topic(), t.topicPrefix, t.serverTopic)
 
-			// Get response topic by converting request topic
-			// E.g., mcp/requests/client-123 -> mcp/responses/client-123
-			topic := msg.Topic()
-			responseTopic := topic
-			if t.isServer {
-				// Server responding to client
-				// Convert from server topic to client topic
-				responseTopic = topic
-				// Implementation would extract client ID and build response topic
+			if clientID != "" {
+				// Send response to client-specific topic using client ID
+				responseTopic := t.getClientTopic(clientID)
+
+				token := t.client.Publish(responseTopic, t.qos, false, response)
+				token.Wait()
+			} else {
+				// Fallback to broadcast if no client ID found
+				responseTopic := t.getClientTopic("all")
+
+				token := t.client.Publish(responseTopic, t.qos, false, response)
+				token.Wait()
 			}
-
-			// Publish response
-			token := t.client.Publish(responseTopic, t.qos, false, response)
-			token.Wait()
 		}
 	}
 }
@@ -287,9 +256,7 @@ func (t *Transport) subscribe(topic string, qos byte) error {
 		return token.Error()
 	}
 
-	t.subsMu.Lock()
 	t.subs[topic] = qos
-	t.subsMu.Unlock()
 
 	return nil
 }
@@ -360,19 +327,42 @@ func WithTLS(config TLSConfig) MQTTOption {
 
 // SetMessageHandler sets the handler for incoming messages
 func (t *Transport) SetMessageHandler(handler transport.MessageHandler) {
-	t.handlerMu.Lock()
-	defer t.handlerMu.Unlock()
 	t.handler = handler
 }
 
 // HandleMessage processes an incoming message using the registered handler
 func (t *Transport) HandleMessage(message []byte) ([]byte, error) {
-	t.handlerMu.RLock()
 	handler := t.handler
-	t.handlerMu.RUnlock()
-
-	if handler != nil {
-		return handler(message)
+	if handler == nil {
+		return nil, errors.New("no message handler set")
 	}
-	return nil, errors.New("no message handler registered")
+
+	return handler(message)
+}
+
+// getServerTopic returns the full topic for sending to server
+func (t *Transport) getServerTopic(clientID string) string {
+	if clientID == "" {
+		return fmt.Sprintf("%s/%s", t.topicPrefix, t.serverTopic)
+	}
+	return fmt.Sprintf("%s/%s/%s", t.topicPrefix, t.serverTopic, clientID)
+}
+
+// getClientTopic returns the full topic for sending to clients
+func (t *Transport) getClientTopic(clientID string) string {
+	if clientID == "all" {
+		// For publishing responses, use a general response topic
+		return fmt.Sprintf("%s/%s", t.topicPrefix, t.clientTopic)
+	}
+	return fmt.Sprintf("%s/%s/%s", t.topicPrefix, t.clientTopic, clientID)
+}
+
+// extractClientIDFromTopic extracts client ID from MQTT topic
+func extractClientIDFromTopic(topic, topicPrefix, serverTopic string) string {
+	// Expected format: {topicPrefix}/{serverTopic}/{clientID}
+	expectedPrefix := fmt.Sprintf("%s/%s/", topicPrefix, serverTopic)
+	if len(topic) > len(expectedPrefix) && topic[:len(expectedPrefix)] == expectedPrefix {
+		return topic[len(expectedPrefix):]
+	}
+	return ""
 }

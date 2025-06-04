@@ -217,16 +217,20 @@ func (s *serverImpl) validateAndExtractToolHandler(handler interface{}) (interfa
 			reflect.ValueOf(convertedArgs),
 		})
 
-		// Extract the results
+		// Extract the results using simple interface{} - Go's dynamic typing
 		var resultValue interface{}
 		var errValue error
 
-		if !results[0].IsNil() {
+		// Get first return value (result)
+		if results[0].IsValid() && results[0].CanInterface() {
 			resultValue = results[0].Interface()
 		}
 
-		if !results[1].IsNil() {
-			errValue = results[1].Interface().(error)
+		// Get second return value (error)
+		if results[1].IsValid() && results[1].CanInterface() {
+			if err := results[1].Interface(); err != nil {
+				errValue = err.(error)
+			}
 		}
 
 		return resultValue, errValue

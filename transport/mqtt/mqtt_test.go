@@ -49,8 +49,8 @@ func TestTopicFormatting(t *testing.T) {
 	assert.Equal(t, "mcp/requests", trans.getServerTopic(""))
 	assert.Equal(t, "mcp/requests/client1", trans.getServerTopic("client1"))
 
-	// Test client topic formatting
-	assert.Equal(t, "mcp/responses/#", trans.getClientTopic("all"))
+	// Test client topic formatting - "all" now means general broadcast topic for fallback
+	assert.Equal(t, "mcp/responses", trans.getClientTopic("all"))
 	assert.Equal(t, "mcp/responses/client1", trans.getClientTopic("client1"))
 
 	// Test with custom prefix

@@ -2,7 +2,10 @@ module github.com/localrivet/gomcp/examples/mqtt
 
 go 1.24.0
 
-require github.com/localrivet/gomcp v0.0.0
+require (
+	github.com/localrivet/gomcp v0.0.0
+	github.com/mochi-mqtt/server/v2 v2.7.9
+)
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0 // indirect
@@ -16,6 +19,7 @@ require (
 	github.com/nats-io/nats.go v1.42.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
+	github.com/rs/xid v1.4.0 // indirect
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect
@@ -24,6 +28,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250218202821-56aae31c358a // indirect
 	google.golang.org/grpc v1.72.1 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace github.com/localrivet/gomcp => ../..

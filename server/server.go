@@ -17,6 +17,7 @@ import (
 	"github.com/localrivet/gomcp/events"
 	"github.com/localrivet/gomcp/mcp"
 	"github.com/localrivet/gomcp/transport"
+	"github.com/localrivet/gomcp/transport/http"
 	"github.com/localrivet/gomcp/transport/mqtt"
 	"github.com/localrivet/gomcp/transport/nats"
 	"github.com/localrivet/gomcp/transport/sse"
@@ -240,10 +241,12 @@ type Server interface {
 	// AsHTTP configures the server to use HTTP for communication.
 	//
 	// The address parameter specifies the host and port to listen on.
+	// Additional options can be provided to customize the HTTP transport behavior.
 	//
 	// Example:
 	//  server.AsHTTP("localhost:8080")
-	AsHTTP(address string) Server
+	//  server.AsHTTP("localhost:8080", http.WithPathPrefix("/api/v1"), http.WithMCPEndpoint("/custom-mcp"))
+	AsHTTP(address string, options ...http.Option) Server
 
 	// AsWebsocket configures the server to use WebSocket for communication.
 	//

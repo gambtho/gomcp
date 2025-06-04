@@ -1,12 +1,12 @@
-// Package main provides an example of using the HTTP transport for gomcp
+// Package main provides a simple example of using the Streamable HTTP transport for gomcp
+// This example demonstrates how to set up both a server and client using HTTP transport
+// following the MCP 2025-03-26 specification for streamable HTTP.
 package main
 
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
+	"net"
 	"time"
 
 	"github.com/localrivet/gomcp/client"
@@ -14,76 +14,90 @@ import (
 )
 
 func main() {
-	// Create a channel to listen for termination signals
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	fmt.Println("=== Streamable HTTP Transport Example ===")
+	fmt.Println()
 
-	// Define the HTTP host and port
-	address := "localhost:8080"
+	// finds a random available port on localhost
+	// EXAMPLE ONLY, DO NOT USE THIS IN PRODUCTION
+	port := func() string {
+		// Listen on port 0 to get a random available port
+		listener, err := net.Listen("tcp", "localhost:0")
+		if err != nil {
+			log.Fatalf("Failed to find available port: %v", err)
+		}
+		defer listener.Close()
 
-	// Start the server in a goroutine
-	startServer(address)
+		// Extract the port number from the address
+		port := listener.Addr().(*net.TCPAddr).Port
+		return fmt.Sprintf("%d", port)
+	}()
 
-	// Wait a bit for the server to initialize
+	// Start the HTTP server in a goroutine so it runs concurrently
+	// The server will listen on localhost:PORT with the MCP endpoint at /mcp
+	go startServer(port)
+
+	// Give the server a moment to start up and begin listening
 	time.Sleep(1 * time.Second)
 
-	// Start the client
-	go runClient(address)
-
-	// Wait for termination signal
-	<-signals
-	fmt.Println("\nShutdown signal received, exiting...")
+	// Run the client to test the server functionality
+	// This will connect to the server and call some tools
+	runClient(port)
 }
 
-func startServer(address string) {
-	// Create a new server
+// startServer creates and runs an HTTP MCP server
+// The server listens on localhost:PORT and provides tools via the /mcp endpoint
+func startServer(port string) {
+	fmt.Println("Starting server...")
+
+	// Create a new MCP server instance
 	srv := server.NewServer("http-example-server")
 
-	// Configure the server with HTTP transport
-	srv.AsHTTP(address)
+	// Start the HTTP server on a random available port
+	// This creates the endpoint: http://localhost:PORT/mcp
+	srv.AsHTTP("localhost:" + port)
+	// With custom paths using options:
+	// srv.AsHTTP("localhost:"+port, http.WithPathPrefix("/api/v1"), http.WithMCPEndpoint("/mcp"))
 
-	// Register a simple echo tool
+	// Register an echo tool that returns the input message with a timestamp
 	srv.Tool("echo", "Echo the message back", func(ctx *server.Context, args struct {
 		Message string `json:"message"`
 	}) (map[string]interface{}, error) {
 		fmt.Printf("Server received: %s\n", args.Message)
 		return map[string]interface{}{
-			"message": args.Message,
+			"echo":      args.Message,
+			"timestamp": time.Now().Format(time.RFC3339),
 		}, nil
 	})
 
-	// Start the server in a goroutine
-	go func() {
-		fmt.Println("Starting HTTP server on", address)
-		if err := srv.Run(); err != nil {
-			log.Fatalf("Server error: %v", err)
-		}
-	}()
+	// Start the server and block until it shuts down
+	if err := srv.Run(); err != nil {
+		log.Printf("Server error: %v", err)
+	}
 }
 
-func runClient(address string) {
-	// For HTTP transport, we need to format the address as a URL
-	serverURL := fmt.Sprintf("http://%s", address)
+// runClient creates an HTTP client and tests the server's tools
+// This demonstrates how to connect to and interact with an HTTP MCP server
+func runClient(ipAddress string) {
+	fmt.Println("Connecting client...")
 
-	// Create a new client with the HTTP server URL directly
-	c, err := client.NewClient(serverURL,
-		client.WithConnectionTimeout(5*time.Second),
-		client.WithRequestTimeout(30*time.Second),
-	)
+	// Create a new MCP client that connects to the HTTP server
+	// The URL must include the /mcp endpoint path
+	c, err := client.NewClient("http://localhost:" + ipAddress + "/mcp")
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 	defer c.Close()
 
-	// Call the echo tool - connection happens automatically
+	fmt.Printf("Connected! Protocol version: %s\n", c.Version())
+
+	// Test the echo tool by sending a message
 	echoResult, err := c.CallTool("echo", map[string]interface{}{
 		"message": "Hello from HTTP client!",
 	})
 	if err != nil {
-		log.Fatalf("Echo call failed: %v", err)
+		log.Fatalf("Echo failed: %v", err)
 	}
 	fmt.Printf("Echo result: %v\n", echoResult)
 
-	// Wait a moment to allow printing of results
-	time.Sleep(500 * time.Millisecond)
+	fmt.Println("✅ Example completed successfully!")
 }
