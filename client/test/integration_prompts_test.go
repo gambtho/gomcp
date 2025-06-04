@@ -49,7 +49,37 @@ func TestListPromptsWithRealServerData(t *testing.T) {
 	// Create a mock transport with standard setup
 	m := SetupMockTransport("2025-03-26")
 
-	// Add the real server response first (conditional responses are checked first)
+	// Clear the response queue to remove the default prompts/list response
+	m.ClearResponses()
+
+	// Re-add essential responses for client initialization
+	initResponse := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"result": map[string]interface{}{
+			"protocolVersion": "2025-03-26",
+			"serverInfo": map[string]interface{}{
+				"name":    "Test Server",
+				"version": "1.0.0",
+			},
+			"capabilities": map[string]interface{}{
+				"enhancedResources": true,
+				"multipleRoots":     true,
+			},
+			"versions": []string{"draft", "2024-11-05", "2025-03-26"},
+		},
+	}
+	initJSON, _ := json.Marshal(initResponse)
+	m.QueueConditionalResponse(initJSON, nil, IsRequestMethod("initialize"))
+
+	// Add response for notifications/initialized
+	m.QueueConditionalResponse(
+		[]byte(`{"jsonrpc":"2.0","result":null}`),
+		nil,
+		IsRequestMethod("notifications/initialized"),
+	)
+
+	// Add the real server response for prompts/list
 	m.QueueConditionalResponse(
 		responseBytes,
 		nil,
@@ -223,7 +253,37 @@ func TestListPromptsEmpty(t *testing.T) {
 	// Create a mock transport with the real empty response
 	m := SetupMockTransport("2025-03-26")
 
-	// Add the real server response first (conditional responses are checked first)
+	// Clear the response queue to remove the default prompts/list response
+	m.ClearResponses()
+
+	// Re-add essential responses for client initialization
+	initResponse := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"result": map[string]interface{}{
+			"protocolVersion": "2025-03-26",
+			"serverInfo": map[string]interface{}{
+				"name":    "Test Server",
+				"version": "1.0.0",
+			},
+			"capabilities": map[string]interface{}{
+				"enhancedResources": true,
+				"multipleRoots":     true,
+			},
+			"versions": []string{"draft", "2024-11-05", "2025-03-26"},
+		},
+	}
+	initJSON, _ := json.Marshal(initResponse)
+	m.QueueConditionalResponse(initJSON, nil, IsRequestMethod("initialize"))
+
+	// Add response for notifications/initialized
+	m.QueueConditionalResponse(
+		[]byte(`{"jsonrpc":"2.0","result":null}`),
+		nil,
+		IsRequestMethod("notifications/initialized"),
+	)
+
+	// Add the real server response for prompts/list (empty)
 	m.QueueConditionalResponse(
 		responseBytes,
 		nil,
