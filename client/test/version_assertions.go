@@ -591,107 +591,45 @@ func AssertVersionSpecificOperation(t *testing.T, version string,
 	validator(t, version, response)
 }
 
-// AssertRootOperations verifies that the root operations work correctly for
-// the given protocol version
+// AssertRootOperations verifies that the root notifications work correctly for
+// the given protocol version (correct MCP behavior)
 func AssertRootOperations(t *testing.T, version string, transport *MockTransport) {
 	t.Helper()
 
-	// Test root list operation
-	rootListReq := jsonrpc.NewRootListRequest(1)
-	rootListReqJSON, _ := json.Marshal(rootListReq)
+	// NOTE: According to MCP specification, clients don't send root/add or root/remove requests.
+	// Instead, clients manage roots locally and send notifications/roots/list_changed.
+	// The server can request roots/list FROM the client, but this isn't commonly used.
 
-	// Create response for the root list operation
-	var rootsResult interface{}
-	switch version {
-	case "2025-03-26":
-		// Enhanced roots in newer version
-		rootsResult = map[string]interface{}{
-			"roots": []interface{}{
-				map[string]interface{}{
-					"uri":  "/test/root",
-					"name": "Test Root",
-					"metadata": map[string]interface{}{
-						"description": "Test root directory",
-					},
-				},
-			},
-		}
-	default:
-		// Basic roots in older versions
-		rootsResult = map[string]interface{}{
-			"roots": []interface{}{
-				map[string]interface{}{
-					"uri":  "/test/root",
-					"name": "Test Root",
-				},
-			},
-		}
-	}
+	// Test that we can create a roots/list_changed notification
+	notification := jsonrpc.NewRootsListChangedNotification()
+	notificationJSON, _ := json.Marshal(notification)
 
-	rootListResp := &jsonrpc.JSONRPC{
-		Version: "2.0",
-		ID:      1,
-		Result:  rootsResult,
-	}
-	rootListRespJSON, _ := json.Marshal(rootListResp)
-
-	transport.QueueResponse(rootListRespJSON, nil)
-
-	response, err := transport.Send(rootListReqJSON)
+	// Send the notification (no response expected since it's a notification)
+	_, err := transport.Send(notificationJSON)
 	if err != nil {
-		t.Fatalf("Root list operation failed for version %s: %v", version, err)
+		t.Fatalf("Roots list changed notification failed for version %s: %v", version, err)
 	}
 
-	// Verify response has roots array
-	var respObj map[string]interface{}
-	if err := json.Unmarshal(response, &respObj); err != nil {
-		t.Fatalf("Failed to parse response: %v", err)
+	// Verify the notification was properly formatted
+	var notifObj map[string]interface{}
+	if err := json.Unmarshal(notificationJSON, &notifObj); err != nil {
+		t.Fatalf("Failed to parse notification: %v", err)
 	}
 
-	result, ok := respObj["result"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected result to be a map, got %T", respObj["result"])
+	if notifObj["jsonrpc"] != "2.0" {
+		t.Errorf("Expected jsonrpc to be '2.0', got %v", notifObj["jsonrpc"])
 	}
 
-	roots, ok := result["roots"].([]interface{})
-	if !ok {
-		t.Errorf("Expected roots to be an array, got %T", result["roots"])
-	} else if len(roots) == 0 {
-		t.Errorf("Roots array should not be empty")
+	if notifObj["method"] != "notifications/roots/list_changed" {
+		t.Errorf("Expected method to be 'notifications/roots/list_changed', got %v", notifObj["method"])
 	}
 
-	// Test other root operations if needed for the version
-	if version == "2025-03-26" {
-		// Test operations specific to 2025-03-26 like root/add
-		rootAddReq := jsonrpc.NewRootAddRequest(2, "/new/root", "New Root")
-		rootAddReqJSON, _ := json.Marshal(rootAddReq)
-
-		emptyResult := map[string]interface{}{}
-		rootAddResp := &jsonrpc.JSONRPC{
-			Version: "2.0",
-			ID:      2,
-			Result:  emptyResult,
-		}
-		rootAddRespJSON, _ := json.Marshal(rootAddResp)
-
-		transport.QueueResponse(rootAddRespJSON, nil)
-
-		response, err = transport.Send(rootAddReqJSON)
-		if err != nil {
-			t.Fatalf("Root add operation failed for version %s: %v", version, err)
-		}
-
-		// Verify successful response
-		var addRespObj map[string]interface{}
-		if err := json.Unmarshal(response, &addRespObj); err != nil {
-			t.Fatalf("Failed to parse response: %v", err)
-		}
-
-		_, hasResult := addRespObj["result"]
-		if !hasResult {
-			t.Errorf("Expected result in response, got none")
-		}
+	// Notifications should not have an ID field
+	if _, hasID := notifObj["id"]; hasID {
+		t.Errorf("Notification should not have an 'id' field")
 	}
+
+	t.Logf("Successfully verified roots notification format for version %s", version)
 }
 
 // ParseResponse parses a JSON-RPC response using the JSONRPC struct
@@ -821,25 +759,5 @@ func CreateRootListResponse(version string, id interface{}) []byte {
 	return responseJSON
 }
 
-// CreateRootAddResponse creates a response for roots/add request
-func CreateRootAddResponse(version string, id interface{}) []byte {
-	// Base success response
-	result := map[string]interface{}{}
-
-	// Add version-specific fields
-	if version == "2025-03-26" {
-		result["success"] = true
-		result["metadata"] = map[string]interface{}{
-			"addedAt": time.Now().UTC().Format(time.RFC3339),
-		}
-	}
-
-	rootAddResp := &jsonrpc.JSONRPC{
-		Version: "2.0",
-		ID:      id,
-		Result:  result,
-	}
-
-	responseJSON, _ := json.Marshal(rootAddResp)
-	return responseJSON
-}
+// Note: CreateRootAddResponse removed - roots/add method doesn't exist in MCP protocol.
+// Clients manage roots locally and send notifications/roots/list_changed notifications.

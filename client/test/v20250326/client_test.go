@@ -138,64 +138,29 @@ func TestGetPrompt_v20250326(t *testing.T) {
 	}
 }
 
-// TestRoots_v20250326 tests root management operations in the 2025-03-26 version
+// TestRoots_v20250326 tests root management operations in the 2025-03-26 version using correct MCP protocol
 func TestRoots_v20250326(t *testing.T) {
 	c, mockTransport := setupTest(t)
 
-	// Test add root
-	addRootResponse := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"result":  map[string]interface{}{},
-	}
-	addRootJSON, _ := json.Marshal(addRootResponse)
-	mockTransport.QueueResponse(addRootJSON, nil)
-
-	err := c.AddRoot("/test/2025-03-26/root", "2025-03-26 Test Root")
+	// Test add root - should only send notifications/roots/list_changed
+	err := c.AddRoot("file:///test/2025-03-26/root", "2025-03-26 Test Root")
 	if err != nil {
 		t.Fatalf("AddRoot failed: %v", err)
 	}
 
-	// Verify the add request format
+	// Verify that NO roots/add request was sent (this method doesn't exist in MCP)
 	addRequests := mockTransport.GetRequestsByMethod("roots/add")
-	if len(addRequests) != 1 {
-		t.Fatalf("Expected 1 roots/add request, got %d", len(addRequests))
+	if len(addRequests) != 0 {
+		t.Errorf("Expected 0 roots/add requests (method doesn't exist in MCP), got %d", len(addRequests))
 	}
 
-	var addRequest map[string]interface{}
-	if err := json.Unmarshal(addRequests[0].Message, &addRequest); err != nil {
-		t.Fatalf("Failed to parse add request: %v", err)
+	// Verify that notifications/roots/list_changed was sent (correct MCP behavior)
+	notifications := mockTransport.GetRequestsByMethod("notifications/roots/list_changed")
+	if len(notifications) != 1 {
+		t.Fatalf("Expected 1 roots/list_changed notification, got %d", len(notifications))
 	}
 
-	if addRequest["method"] != "roots/add" {
-		t.Errorf("Expected method roots/add, got %v", addRequest["method"])
-	}
-
-	addParams, ok := addRequest["params"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected params in add request, got %v", addRequest)
-	}
-
-	if addParams["uri"] != "/test/2025-03-26/root" || addParams["name"] != "2025-03-26 Test Root" {
-		t.Errorf("Add root params not as expected: %v", addParams)
-	}
-
-	// Test get roots
-	getRootsResponse := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      2,
-		"result": map[string]interface{}{
-			"roots": []interface{}{
-				map[string]interface{}{
-					"uri":  "/test/2025-03-26/root",
-					"name": "2025-03-26 Test Root",
-				},
-			},
-		},
-	}
-	getRootsJSON, _ := json.Marshal(getRootsResponse)
-	mockTransport.QueueResponse(getRootsJSON, nil)
-
+	// Test get roots - should read from local cache, no server requests
 	roots, err := c.GetRoots()
 	if err != nil {
 		t.Fatalf("GetRoots failed: %v", err)
@@ -205,61 +170,42 @@ func TestRoots_v20250326(t *testing.T) {
 		t.Fatalf("Expected 1 root, got %d", len(roots))
 	}
 
-	if roots[0].URI != "/test/2025-03-26/root" || roots[0].Name != "2025-03-26 Test Root" {
+	if roots[0].URI != "file:///test/2025-03-26/root" || roots[0].Name != "2025-03-26 Test Root" {
 		t.Errorf("Root doesn't match expected: %+v", roots[0])
 	}
 
-	// Verify the get roots request format
-	getRootsRequests := mockTransport.GetRequestsByMethod("roots/list")
-	if len(getRootsRequests) != 1 {
-		t.Fatalf("Expected 1 roots/list request, got %d", len(getRootsRequests))
+	// Verify that NO roots/list request was sent (GetRoots uses local cache)
+	listRequests := mockTransport.GetRequestsByMethod("roots/list")
+	if len(listRequests) != 0 {
+		t.Errorf("Expected 0 roots/list requests (GetRoots uses local cache), got %d", len(listRequests))
 	}
 
-	var getRootsRequest map[string]interface{}
-	if err := json.Unmarshal(getRootsRequests[0].Message, &getRootsRequest); err != nil {
-		t.Fatalf("Failed to parse get roots request: %v", err)
-	}
-
-	if getRootsRequest["method"] != "roots/list" {
-		t.Errorf("Expected method roots/list, got %v", getRootsRequest["method"])
-	}
-
-	// Test remove root
-	removeRootResponse := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      3,
-		"result":  map[string]interface{}{},
-	}
-	removeRootJSON, _ := json.Marshal(removeRootResponse)
-	mockTransport.QueueResponse(removeRootJSON, nil)
-
-	err = c.RemoveRoot("/test/2025-03-26/root")
+	// Test remove root - should only send notifications/roots/list_changed
+	err = c.RemoveRoot("file:///test/2025-03-26/root")
 	if err != nil {
 		t.Fatalf("RemoveRoot failed: %v", err)
 	}
 
-	// Verify the remove request format
+	// Verify that NO roots/remove request was sent (this method doesn't exist in MCP)
 	removeRequests := mockTransport.GetRequestsByMethod("roots/remove")
-	if len(removeRequests) != 1 {
-		t.Fatalf("Expected 1 roots/remove request, got %d", len(removeRequests))
+	if len(removeRequests) != 0 {
+		t.Errorf("Expected 0 roots/remove requests (method doesn't exist in MCP), got %d", len(removeRequests))
 	}
 
-	var removeRequest map[string]interface{}
-	if err := json.Unmarshal(removeRequests[0].Message, &removeRequest); err != nil {
-		t.Fatalf("Failed to parse remove request: %v", err)
+	// Verify that a second notifications/roots/list_changed was sent
+	notifications = mockTransport.GetRequestsByMethod("notifications/roots/list_changed")
+	if len(notifications) != 2 {
+		t.Fatalf("Expected 2 roots/list_changed notifications (add + remove), got %d", len(notifications))
 	}
 
-	if removeRequest["method"] != "roots/remove" {
-		t.Errorf("Expected method roots/remove, got %v", removeRequest["method"])
+	// Verify root was removed from local cache
+	roots, err = c.GetRoots()
+	if err != nil {
+		t.Fatalf("GetRoots failed after remove: %v", err)
 	}
 
-	removeParams, ok := removeRequest["params"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected params in remove request, got %v", removeRequest)
-	}
-
-	if removeParams["uri"] != "/test/2025-03-26/root" {
-		t.Errorf("Remove root params not as expected: %v", removeParams)
+	if len(roots) != 0 {
+		t.Errorf("Expected 0 roots after removal, got %d", len(roots))
 	}
 }
 

@@ -100,71 +100,16 @@ func PromptRequestWithID(id interface{}, name string, variables map[string]inter
 	}
 }
 
-// RootListRequest generates a request to list roots
-func RootListRequest() map[string]interface{} {
-	return map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      4,
-		"method":  "roots/list",
-	}
-}
+// Note: According to MCP specification, there are NO client-to-server root management methods.
+// Clients manage roots locally and only send notifications/roots/list_changed notifications.
+// The server can request root lists via roots/list FROM the client TO the server.
 
-// RootListRequestWithID generates a request to list roots with a specific ID
-func RootListRequestWithID(id interface{}) map[string]interface{} {
+// RootsListChangedNotification generates a notification for when roots change
+func RootsListChangedNotification() map[string]interface{} {
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      id,
-		"method":  "roots/list",
-	}
-}
-
-// RootAddRequest generates a request to add a root
-func RootAddRequest(path, name string) map[string]interface{} {
-	return map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      5,
-		"method":  "roots/add",
-		"params": map[string]interface{}{
-			"uri":  path,
-			"name": name,
-		},
-	}
-}
-
-// RootAddRequestWithID generates a request to add a root with a specific ID
-func RootAddRequestWithID(id interface{}, path, name string) map[string]interface{} {
-	return map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      id,
-		"method":  "roots/add",
-		"params": map[string]interface{}{
-			"uri":  path,
-			"name": name,
-		},
-	}
-}
-
-// RootRemoveRequest generates a request to remove a root
-func RootRemoveRequest(path string) map[string]interface{} {
-	return map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      6,
-		"method":  "roots/remove",
-		"params": map[string]interface{}{
-			"uri": path,
-		},
-	}
-}
-
-// RootRemoveRequestWithID generates a request to remove a root with a specific ID
-func RootRemoveRequestWithID(id interface{}, path string) map[string]interface{} {
-	return map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      id,
-		"method":  "roots/remove",
-		"params": map[string]interface{}{
-			"uri": path,
-		},
+		"method":  "notifications/roots/list_changed",
+		"params":  map[string]interface{}{},
 	}
 }
 

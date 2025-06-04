@@ -3,6 +3,7 @@ package test
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -115,13 +116,14 @@ func TestAddRoot_PathConversion(t *testing.T) {
 
 	// Test that AddRoot automatically converts paths to file:// URIs (one way of doing things)
 	testCases := []struct {
-		input    string
-		expected string
-		name     string
+		input      string
+		expected   string // For absolute paths, exact match; for relative, we'll check differently
+		name       string
+		isRelative bool
 	}{
-		{"/absolute/path", "file:///absolute/path", "absolute path"},
-		{"./relative/path", "file:///./relative/path", "relative path"},
-		{"file:///already/valid", "file:///already/valid", "already valid file URI"},
+		{"/absolute/path", "file:///absolute/path", "absolute path", false},
+		{"./relative/path", "", "relative path", true}, // We'll check this differently
+		{"file:///already/valid", "file:///already/valid", "already valid file URI", false},
 	}
 
 	for _, tc := range testCases {
@@ -137,18 +139,33 @@ func TestAddRoot_PathConversion(t *testing.T) {
 			t.Fatalf("GetRoots failed: %v", err)
 		}
 
-		// Find our added root
-		found := false
-		for _, root := range roots {
-			if root.URI == tc.expected {
-				found = true
-				break
+		if tc.isRelative {
+			// For relative paths, just verify they were converted to a file:// URI with absolute path
+			found := false
+			for _, root := range roots {
+				if strings.HasPrefix(root.URI, "file://") && strings.HasSuffix(root.URI, "/relative/path") {
+					found = true
+					t.Logf("Relative path '%s' correctly converted to absolute file URI: '%s'", tc.input, root.URI)
+					break
+				}
 			}
-		}
-
-		if !found {
-			t.Errorf("Expected root with URI '%s' (converted from '%s'), but not found. Actual roots: %v",
-				tc.expected, tc.input, roots)
+			if !found {
+				t.Errorf("Expected relative path '%s' to be converted to absolute file:// URI, but not found. Actual roots: %v",
+					tc.input, roots)
+			}
+		} else {
+			// For absolute paths and already valid URIs, check exact match
+			found := false
+			for _, root := range roots {
+				if root.URI == tc.expected {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Expected root with URI '%s' (converted from '%s'), but not found. Actual roots: %v",
+					tc.expected, tc.input, roots)
+			}
 		}
 
 		// Clean up for next test

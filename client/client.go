@@ -473,8 +473,7 @@ type clientImpl struct {
 	mu                sync.RWMutex
 	ctx               context.Context
 	cancel            context.CancelFunc
-	roots             []Root
-	rootsMu           sync.RWMutex
+	rootsManager      *rootsManager
 	capabilities      ClientCapabilities
 	samplingHandler   SamplingHandler
 
@@ -533,7 +532,6 @@ func NewClient(url string, options ...Option) (Client, error) {
 		connectionTimeout: 10 * time.Second,
 		ctx:               ctx,
 		cancel:            cancel,
-		roots:             []Root{},
 		capabilities: ClientCapabilities{
 			Roots: RootsCapability{
 				ListChanged: true,
@@ -541,6 +539,9 @@ func NewClient(url string, options ...Option) (Client, error) {
 		},
 		events: events.NewSubject(),
 	}
+
+	// Initialize the roots manager with the actor pattern
+	c.rootsManager = newRootsManager(c)
 
 	// Apply options
 	for _, option := range options {

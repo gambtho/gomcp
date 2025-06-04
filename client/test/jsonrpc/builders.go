@@ -54,37 +54,16 @@ func NewPromptRequest(id interface{}, name string, variables map[string]interfac
 	}
 }
 
-// NewRootListRequest creates a request to list roots
-func NewRootListRequest(id interface{}) *JSONRPC {
-	return &JSONRPC{
-		Version: "2.0",
-		ID:      id,
-		Method:  "roots/list",
-	}
-}
+// Note: According to MCP specification, clients don't send root add/remove requests.
+// Clients manage roots locally and only send notifications/roots/list_changed.
+// The server can request roots/list FROM the client, but this isn't commonly used.
 
-// NewRootAddRequest creates a request to add a root
-func NewRootAddRequest(id interface{}, path, name string) *JSONRPC {
+// NewRootsListChangedNotification creates a notification when roots change
+func NewRootsListChangedNotification() *JSONRPC {
 	return &JSONRPC{
 		Version: "2.0",
-		ID:      id,
-		Method:  "roots/add",
-		Params: RootAddParams{
-			URI:  path,
-			Name: name,
-		},
-	}
-}
-
-// NewRootRemoveRequest creates a request to remove a root
-func NewRootRemoveRequest(id interface{}, path string) *JSONRPC {
-	return &JSONRPC{
-		Version: "2.0",
-		ID:      id,
-		Method:  "roots/remove",
-		Params: RootRemoveParams{
-			URI: path,
-		},
+		Method:  "notifications/roots/list_changed",
+		Params:  map[string]interface{}{},
 	}
 }
 

@@ -55,7 +55,12 @@ func WithConnectionTimeout(timeout time.Duration) Option {
 // WithRoots sets the initial roots for the client.
 func WithRoots(roots []Root) Option {
 	return func(c *clientImpl) {
-		c.roots = roots
+		// Add each root via the actor pattern after client is fully initialized
+		go func() {
+			for _, root := range roots {
+				_ = c.AddRoot(root.URI, root.Name)
+			}
+		}()
 		// Enable roots capability if roots are provided
 		c.capabilities.Roots.ListChanged = true
 	}

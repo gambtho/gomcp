@@ -4,61 +4,119 @@ package client
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"path/filepath"
+	"strings"
 )
 
-// AddRoot adds a filesystem root to be exposed to the server.
-// Accepts either filesystem paths or file:// URIs - automatically converts paths to file:// URIs as required by MCP specification.
-func (c *clientImpl) AddRoot(uri string, name string) error {
-	// Convert to file:// URI if needed (MCP specification requires file:// URIs)
+// rootsRequest represents a request to the roots manager
+type rootsRequest struct {
+	operation string
+	uri       string
+	name      string
+	response  chan rootsResponse
+}
+
+// rootsResponse represents a response from the roots manager
+type rootsResponse struct {
+	roots []Root
+	err   error
+}
+
+// rootsManager manages roots using the actor pattern - single goroutine owns all data
+type rootsManager struct {
+	requests chan rootsRequest
+	done     chan struct{}
+	client   *clientImpl // for sending notifications
+}
+
+// newRootsManager creates and starts a new roots manager
+func newRootsManager(client *clientImpl) *rootsManager {
+	rm := &rootsManager{
+		requests: make(chan rootsRequest, 100), // buffered for better performance
+		done:     make(chan struct{}),
+		client:   client,
+	}
+	go rm.run()
+	return rm
+}
+
+// run is the main actor loop - runs in its own goroutine
+func (rm *rootsManager) run() {
+	var roots []Root // this slice is owned by this goroutine only
+
+	for {
+		select {
+		case req := <-rm.requests:
+			rm.handleRequest(req, &roots)
+		case <-rm.done:
+			return
+		}
+	}
+}
+
+// handleRequest processes a single request
+func (rm *rootsManager) handleRequest(req rootsRequest, roots *[]Root) {
+	var resp rootsResponse
+
+	switch req.operation {
+	case "add":
+		resp.err = rm.addRoot(roots, req.uri, req.name)
+	case "remove":
+		resp.err = rm.removeRoot(roots, req.uri)
+	case "get":
+		// Return a copy to prevent external modifications
+		resp.roots = make([]Root, len(*roots))
+		copy(resp.roots, *roots)
+	default:
+		resp.err = fmt.Errorf("unknown operation: %s", req.operation)
+	}
+
+	// Send response back
+	select {
+	case req.response <- resp:
+	case <-rm.done:
+		return
+	}
+}
+
+// addRoot adds a root to the slice (runs in actor goroutine)
+func (rm *rootsManager) addRoot(roots *[]Root, uri, name string) error {
+	// Convert to file:// URI if needed
 	uri = ensureFileURI(uri)
 
-	c.rootsMu.Lock()
-	defer c.rootsMu.Unlock()
-
 	// Check if the root already exists
-	for _, root := range c.roots {
+	for _, root := range *roots {
 		if root.URI == uri {
 			return fmt.Errorf("root with URI %s already exists", uri)
 		}
 	}
 
-	// Add the root to our local cache
-	c.roots = append(c.roots, Root{
+	// Add the root
+	*roots = append(*roots, Root{
 		URI:  uri,
 		Name: name,
 	})
 
-	// Note: According to MCP protocol, there is no "roots/add" method.
-	// Clients manage their own roots and only notify servers of changes.
-
 	// Enable roots capability if not already enabled
-	if !c.capabilities.Roots.ListChanged {
-		c.capabilities.Roots.ListChanged = true
+	if !rm.client.capabilities.Roots.ListChanged {
+		rm.client.capabilities.Roots.ListChanged = true
 	}
 
-	// Send notification that the roots list has changed
-	if err := c.sendRootsListChangedNotification(); err != nil {
-		// Log error but don't fail the operation
-		// The root was successfully added, notification failure shouldn't break that
-		// TODO: Add proper logging when available
-		_ = err
-	}
+	// Send notification (outside of critical section since we own the data)
+	rm.client.sendRootsListChangedNotification()
 
 	return nil
 }
 
-// RemoveRoot removes a filesystem root.
-// Accepts either filesystem paths or file:// URIs - automatically converts paths to file:// URIs as required by MCP specification.
-func (c *clientImpl) RemoveRoot(uri string) error {
-	// Convert to file:// URI if needed (MCP specification requires file:// URIs)
+// removeRoot removes a root from the slice (runs in actor goroutine)
+func (rm *rootsManager) removeRoot(roots *[]Root, uri string) error {
+	// Convert to file:// URI if needed
 	uri = ensureFileURI(uri)
 
-	c.rootsMu.Lock()
-	defer c.rootsMu.Unlock()
-
-	// Find the root in our local cache
+	// Find the root
 	var foundIndex = -1
-	for i, root := range c.roots {
+	for i, root := range *roots {
 		if root.URI == uri {
 			foundIndex = i
 			break
@@ -69,43 +127,84 @@ func (c *clientImpl) RemoveRoot(uri string) error {
 		return fmt.Errorf("root with URI %s not found", uri)
 	}
 
-	// Note: According to MCP protocol, there is no "roots/remove" method.
-	// Clients manage their own roots and only notify servers of changes.
+	// Remove the root
+	*roots = append((*roots)[:foundIndex], (*roots)[foundIndex+1:]...)
 
-	// Remove the root from our local cache
-	c.roots = append(c.roots[:foundIndex], c.roots[foundIndex+1:]...)
-
-	// Send notification that the roots list has changed
-	if err := c.sendRootsListChangedNotification(); err != nil {
-		// Log error but don't fail the operation
-		// The root was successfully removed, notification failure shouldn't break that
-		// TODO: Add proper logging when available
-		_ = err
-	}
+	// Send notification (outside of critical section since we own the data)
+	rm.client.sendRootsListChangedNotification()
 
 	return nil
+}
+
+// stop shuts down the roots manager
+func (rm *rootsManager) stop() {
+	close(rm.done)
+}
+
+// AddRoot adds a filesystem root to be exposed to the server.
+// Accepts either filesystem paths or file:// URIs - automatically converts paths to file:// URIs as required by MCP specification.
+func (c *clientImpl) AddRoot(uri string, name string) error {
+	req := rootsRequest{
+		operation: "add",
+		uri:       uri,
+		name:      name,
+		response:  make(chan rootsResponse, 1),
+	}
+
+	select {
+	case c.rootsManager.requests <- req:
+		// Wait for response
+		resp := <-req.response
+		return resp.err
+	case <-c.ctx.Done():
+		return c.ctx.Err()
+	}
+}
+
+// RemoveRoot removes a filesystem root.
+// Accepts either filesystem paths or file:// URIs - automatically converts paths to file:// URIs as required by MCP specification.
+func (c *clientImpl) RemoveRoot(uri string) error {
+	req := rootsRequest{
+		operation: "remove",
+		uri:       uri,
+		response:  make(chan rootsResponse, 1),
+	}
+
+	select {
+	case c.rootsManager.requests <- req:
+		// Wait for response
+		resp := <-req.response
+		return resp.err
+	case <-c.ctx.Done():
+		return c.ctx.Err()
+	}
 }
 
 // GetRoots returns the current list of roots.
 // According to MCP protocol, clients manage their own roots.
 // The server requests roots via "roots/list" calls TO the client, not FROM the client.
 func (c *clientImpl) GetRoots() ([]Root, error) {
-	c.rootsMu.RLock()
-	defer c.rootsMu.RUnlock()
+	req := rootsRequest{
+		operation: "get",
+		response:  make(chan rootsResponse, 1),
+	}
 
-	// Return a copy to prevent modifications
-	roots := make([]Root, len(c.roots))
-	copy(roots, c.roots)
-
-	return roots, nil
+	select {
+	case c.rootsManager.requests <- req:
+		// Wait for response
+		resp := <-req.response
+		return resp.roots, resp.err
+	case <-c.ctx.Done():
+		return nil, c.ctx.Err()
+	}
 }
 
 // handleRootsList handles a roots/list request from the server.
 func (c *clientImpl) handleRootsList(requestID int64) error {
-	c.rootsMu.RLock()
-	roots := make([]Root, len(c.roots))
-	copy(roots, c.roots)
-	c.rootsMu.RUnlock()
+	roots, err := c.GetRoots()
+	if err != nil {
+		return err
+	}
 
 	response := map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -115,26 +214,19 @@ func (c *clientImpl) handleRootsList(requestID int64) error {
 		},
 	}
 
-	// Convert to JSON
-	responseJSON, err := json.Marshal(response)
+	responseData, err := json.Marshal(response)
 	if err != nil {
 		return fmt.Errorf("failed to marshal roots/list response: %w", err)
 	}
 
-	// Send the response
-	_, err = c.transport.Send(responseJSON)
-	if err != nil {
-		return fmt.Errorf("failed to send roots/list response: %w", err)
-	}
-
-	return nil
+	_, err = c.transport.Send(responseData)
+	return err
 }
 
-// sendRootsListChangedNotification sends a notification that the roots list has changed.
-func (c *clientImpl) sendRootsListChangedNotification() error {
-	// Check if we support the roots/list_changed notification
+// sendRootsListChangedNotification sends a notification that the roots list has changed
+func (c *clientImpl) sendRootsListChangedNotification() {
 	if !c.capabilities.Roots.ListChanged {
-		return nil
+		return // Don't send notifications if capability is not enabled
 	}
 
 	notification := map[string]interface{}{
@@ -142,19 +234,14 @@ func (c *clientImpl) sendRootsListChangedNotification() error {
 		"method":  "notifications/roots/list_changed",
 	}
 
-	// Convert to JSON
-	notificationJSON, err := json.Marshal(notification)
+	notificationData, err := json.Marshal(notification)
 	if err != nil {
-		return fmt.Errorf("failed to marshal roots list changed notification: %w", err)
+		// Log error but don't fail the operation
+		return
 	}
 
-	// Send the notification
-	_, err = c.transport.Send(notificationJSON)
-	if err != nil {
-		return fmt.Errorf("failed to send roots list changed notification: %w", err)
-	}
-
-	return nil
+	// Send notification (fire and forget)
+	_, _ = c.transport.Send(notificationData)
 }
 
 // isValidFileURI validates that the URI is a valid file:// URI according to MCP specification
@@ -166,22 +253,29 @@ func isValidFileURI(uri string) bool {
 // ensureFileURI converts a filesystem path to a file:// URI as required by MCP specification.
 // If the input is already a valid file:// URI, it returns it unchanged.
 func ensureFileURI(path string) string {
-	if isValidFileURI(path) {
-		return path // Already a valid file:// URI
+	// Check if it's already a file:// URI
+	if strings.HasPrefix(path, "file://") {
+		return path
 	}
 
-	// Convert backslashes to forward slashes (Windows compatibility)
-	normalizedPath := path
-	for i, char := range normalizedPath {
-		if char == '\\' {
-			normalizedPath = normalizedPath[:i] + "/" + normalizedPath[i+1:]
+	// Check if it's a valid URI with a different scheme
+	if u, err := url.Parse(path); err == nil && u.Scheme != "" && u.Scheme != "file" {
+		// It's a URI with a different scheme, leave it as-is
+		// (though MCP spec requires file:// URIs, this preserves user input for error reporting)
+		return path
+	}
+
+	// Convert filesystem path to file:// URI
+	if !filepath.IsAbs(path) {
+		// Make relative paths absolute
+		var err error
+		path, err = filepath.Abs(path)
+		if err != nil {
+			// If we can't make it absolute, return as-is for error reporting
+			return path
 		}
 	}
 
-	// Ensure path starts with /
-	if len(normalizedPath) == 0 || normalizedPath[0] != '/' {
-		normalizedPath = "/" + normalizedPath
-	}
-
-	return "file://" + normalizedPath
+	// Convert to file:// URI
+	return "file://" + filepath.ToSlash(path)
 }

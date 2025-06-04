@@ -498,50 +498,30 @@ func TestRootOperations(t *testing.T) {
 	testCases := []VersionTestCase{
 		{
 			Name:        "AddGetRemoveRoot",
-			Description: "Test adding, retrieving, and removing a root",
+			Description: "Test adding, retrieving, and removing a root using correct MCP protocol",
 			TestFunc: func(t *testing.T, version string, c client.Client, m *MockTransport) {
-				// Test adding a root
-
 				// Clear history before the test
 				m.ClearHistory()
 
-				// First, set up mock response for add
-				addResponse := map[string]interface{}{
-					"jsonrpc": "2.0",
-					"id":      1,
-					"result":  map[string]interface{}{},
-				}
-				addJSON, _ := json.Marshal(addResponse)
-				m.QueueResponse(addJSON, nil)
-
-				err := c.AddRoot("/test/root", "Test Root")
+				// Test adding a root - should only send notifications/roots/list_changed
+				err := c.AddRoot("file:///test/root", "Test Root")
 				if err != nil {
 					t.Fatalf("AddRoot failed: %v", err)
 				}
 
-				// Verify the add request
-				AssertMethodInHistory(t, m, "roots/add")
-
-				// Clear history before the next operation
-				m.ClearHistory()
-
-				// Set up mock response for get roots
-				getRootsResponse := map[string]interface{}{
-					"jsonrpc": "2.0",
-					"id":      2,
-					"result": map[string]interface{}{
-						"roots": []interface{}{
-							map[string]interface{}{
-								"uri":  "/test/root",
-								"name": "Test Root",
-							},
-						},
-					},
+				// Verify that NO roots/add request was sent (this method doesn't exist in MCP)
+				addRequests := m.GetRequestsByMethod("roots/add")
+				if len(addRequests) != 0 {
+					t.Errorf("Expected 0 roots/add requests (method doesn't exist in MCP), got %d", len(addRequests))
 				}
-				getRootsJSON, _ := json.Marshal(getRootsResponse)
-				m.QueueResponse(getRootsJSON, nil)
 
-				// Get the roots
+				// Verify that notifications/roots/list_changed was sent (correct MCP behavior)
+				notifications := m.GetRequestsByMethod("notifications/roots/list_changed")
+				if len(notifications) != 1 {
+					t.Fatalf("Expected 1 roots/list_changed notification, got %d", len(notifications))
+				}
+
+				// Test getting roots - should read from local cache, no server requests
 				roots, err := c.GetRoots()
 				if err != nil {
 					t.Fatalf("GetRoots failed: %v", err)
@@ -552,33 +532,46 @@ func TestRootOperations(t *testing.T) {
 					t.Fatalf("Expected 1 root, got %d", len(roots))
 				}
 
-				if roots[0].URI != "/test/root" || roots[0].Name != "Test Root" {
+				if roots[0].URI != "file:///test/root" || roots[0].Name != "Test Root" {
 					t.Errorf("Root does not match expected: %+v", roots[0])
 				}
 
-				// Verify the list request
-				AssertMethodInHistory(t, m, "roots/list")
+				// Verify that NO roots/list request was sent (GetRoots uses local cache)
+				listRequests := m.GetRequestsByMethod("roots/list")
+				if len(listRequests) != 0 {
+					t.Errorf("Expected 0 roots/list requests (GetRoots uses local cache), got %d", len(listRequests))
+				}
 
-				// Clear history before the next operation
+				// Clear history before remove operation
 				m.ClearHistory()
 
-				// Set up mock response for remove
-				removeResponse := map[string]interface{}{
-					"jsonrpc": "2.0",
-					"id":      3,
-					"result":  map[string]interface{}{},
-				}
-				removeJSON, _ := json.Marshal(removeResponse)
-				m.QueueResponse(removeJSON, nil)
-
-				// Remove the root
-				err = c.RemoveRoot("/test/root")
+				// Test removing a root - should only send notifications/roots/list_changed
+				err = c.RemoveRoot("file:///test/root")
 				if err != nil {
 					t.Fatalf("RemoveRoot failed: %v", err)
 				}
 
-				// Verify the remove request
-				AssertMethodInHistory(t, m, "roots/remove")
+				// Verify that NO roots/remove request was sent (this method doesn't exist in MCP)
+				removeRequests := m.GetRequestsByMethod("roots/remove")
+				if len(removeRequests) != 0 {
+					t.Errorf("Expected 0 roots/remove requests (method doesn't exist in MCP), got %d", len(removeRequests))
+				}
+
+				// Verify that notifications/roots/list_changed was sent (correct MCP behavior)
+				notifications = m.GetRequestsByMethod("notifications/roots/list_changed")
+				if len(notifications) != 1 {
+					t.Fatalf("Expected 1 roots/list_changed notification after remove, got %d", len(notifications))
+				}
+
+				// Verify root was removed from local cache
+				roots, err = c.GetRoots()
+				if err != nil {
+					t.Fatalf("GetRoots failed after remove: %v", err)
+				}
+
+				if len(roots) != 0 {
+					t.Errorf("Expected 0 roots after removal, got %d", len(roots))
+				}
 			},
 		},
 	}
