@@ -3,6 +3,7 @@ package v20250326
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/localrivet/gomcp/client"
 	"github.com/localrivet/gomcp/client/test"
@@ -155,6 +156,11 @@ func TestRoots_v20250326(t *testing.T) {
 	}
 
 	// Verify that notifications/roots/list_changed was sent (correct MCP behavior)
+	// Wait for asynchronous notification to be sent
+	if !mockTransport.WaitForNotification("notifications/roots/list_changed", 1*time.Second) {
+		t.Fatal("Timeout waiting for roots/list_changed notification")
+	}
+
 	notifications := mockTransport.GetRequestsByMethod("notifications/roots/list_changed")
 	if len(notifications) != 1 {
 		t.Fatalf("Expected 1 roots/list_changed notification, got %d", len(notifications))
@@ -190,6 +196,11 @@ func TestRoots_v20250326(t *testing.T) {
 	removeRequests := mockTransport.GetRequestsByMethod("roots/remove")
 	if len(removeRequests) != 0 {
 		t.Errorf("Expected 0 roots/remove requests (method doesn't exist in MCP), got %d", len(removeRequests))
+	}
+
+	// Wait for the second notification
+	if !mockTransport.WaitForNotification("notifications/roots/list_changed", 1*time.Second) {
+		t.Fatal("Timeout waiting for second roots/list_changed notification")
 	}
 
 	// Verify that a second notifications/roots/list_changed was sent

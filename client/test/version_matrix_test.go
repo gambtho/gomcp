@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/localrivet/gomcp/client"
 )
@@ -516,6 +517,11 @@ func TestRootOperations(t *testing.T) {
 				}
 
 				// Verify that notifications/roots/list_changed was sent (correct MCP behavior)
+				// Wait for asynchronous notification to be sent
+				if !m.WaitForNotification("notifications/roots/list_changed", 1*time.Second) {
+					t.Fatal("Timeout waiting for roots/list_changed notification")
+				}
+
 				notifications := m.GetRequestsByMethod("notifications/roots/list_changed")
 				if len(notifications) != 1 {
 					t.Fatalf("Expected 1 roots/list_changed notification, got %d", len(notifications))
@@ -558,6 +564,11 @@ func TestRootOperations(t *testing.T) {
 				}
 
 				// Verify that notifications/roots/list_changed was sent (correct MCP behavior)
+				// Wait for the second notification
+				if !m.WaitForNotification("notifications/roots/list_changed", 1*time.Second) {
+					t.Fatal("Timeout waiting for second roots/list_changed notification")
+				}
+
 				notifications = m.GetRequestsByMethod("notifications/roots/list_changed")
 				if len(notifications) != 1 {
 					t.Fatalf("Expected 1 roots/list_changed notification after remove, got %d", len(notifications))

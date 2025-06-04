@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 )
@@ -38,6 +39,9 @@ type MockTransport struct {
 	// RequestInterceptor can modify outgoing requests for testing
 	// If set, every request sent through Send/SendWithContext will be processed by this function
 	RequestInterceptor func(request []byte) []byte
+
+	// Notification synchronization for tests
+	notificationChan chan string // Channel to signal when notifications are received
 }
 
 // RequestRecord stores information about a sent request
@@ -81,6 +85,7 @@ func NewMockTransport() *MockTransport {
 		},
 		RequestTimeout:    30 * time.Second,
 		ConnectionTimeout: 10 * time.Second,
+		notificationChan:  make(chan string, 100), // Buffered channel for notifications
 	}
 }
 
@@ -169,6 +174,23 @@ func (m *MockTransport) GetRequestsByMethod(method string) []RequestRecord {
 		}
 	}
 	return result
+}
+
+// WaitForNotification waits for a specific notification method to be received
+// Returns true if the notification was received within the timeout, false otherwise
+func (m *MockTransport) WaitForNotification(method string, timeout time.Duration) bool {
+	deadline := time.After(timeout)
+	for {
+		select {
+		case receivedMethod := <-m.notificationChan:
+			if receivedMethod == method {
+				return true
+			}
+			// Continue waiting for the specific method
+		case <-deadline:
+			return false
+		}
+	}
 }
 
 // Connect implements the Transport interface
@@ -298,6 +320,15 @@ func (m *MockTransport) Send(message []byte) ([]byte, error) {
 
 	// Add to request history
 	m.RequestHistory = append(m.RequestHistory, record)
+
+	// Signal notification for test synchronization (non-blocking)
+	if record.Method != "" && strings.HasPrefix(record.Method, "notifications/") {
+		select {
+		case m.notificationChan <- record.Method:
+		default:
+			// Channel is full, don't block
+		}
+	}
 
 	// First try conditional responses
 	for i, cfg := range m.ResponseQueue {

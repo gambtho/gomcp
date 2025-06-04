@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAddRoot_Success(t *testing.T) {
@@ -35,6 +36,11 @@ func TestAddRoot_Success(t *testing.T) {
 
 	if roots[0].Name != testName {
 		t.Errorf("Expected root name %s, got %s", testName, roots[0].Name)
+	}
+
+	// Wait for asynchronous notification to be sent
+	if !mockTransport.WaitForNotification("notifications/roots/list_changed", 1*time.Second) {
+		t.Fatal("Timeout waiting for roots/list_changed notification")
 	}
 
 	// Verify that a notifications/roots/list_changed was sent (not roots/add)
@@ -96,6 +102,11 @@ func TestAddRoot_DuplicateCheck(t *testing.T) {
 
 	if err.Error() != fmt.Sprintf("root with URI %s already exists", testPath) {
 		t.Errorf("Expected duplicate error message, got: %s", err.Error())
+	}
+
+	// Wait for asynchronous notification to be sent
+	if !mockTransport.WaitForNotification("notifications/roots/list_changed", 1*time.Second) {
+		t.Fatal("Timeout waiting for roots/list_changed notification")
 	}
 
 	// Verify only one notification was sent (for the successful add)
@@ -182,6 +193,11 @@ func TestAddRoot_NotificationFormat(t *testing.T) {
 	err := c.AddRoot(testPath, testName)
 	if err != nil {
 		t.Fatalf("AddRoot failed: %v", err)
+	}
+
+	// Wait for asynchronous notification to be sent
+	if !mockTransport.WaitForNotification("notifications/roots/list_changed", 1*time.Second) {
+		t.Fatal("Timeout waiting for roots/list_changed notification")
 	}
 
 	// Check the notification format

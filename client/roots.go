@@ -83,7 +83,11 @@ func (rm *rootsManager) handleRequest(req rootsRequest, roots *[]Root) {
 // addRoot adds a root to the slice (runs in actor goroutine)
 func (rm *rootsManager) addRoot(roots *[]Root, uri, name string) error {
 	// Convert to file:// URI if needed
-	uri = ensureFileURI(uri)
+	var err error
+	uri, err = ensureFileURI(uri)
+	if err != nil {
+		return err
+	}
 
 	// Check if the root already exists
 	for _, root := range *roots {
@@ -112,7 +116,10 @@ func (rm *rootsManager) addRoot(roots *[]Root, uri, name string) error {
 // removeRoot removes a root from the slice (runs in actor goroutine)
 func (rm *rootsManager) removeRoot(roots *[]Root, uri string) error {
 	// Convert to file:// URI if needed
-	uri = ensureFileURI(uri)
+	uri, err := ensureFileURI(uri)
+	if err != nil {
+		return err
+	}
 
 	// Find the root
 	var foundIndex = -1
@@ -229,6 +236,11 @@ func (c *clientImpl) sendRootsListChangedNotification() {
 		return // Don't send notifications if capability is not enabled
 	}
 
+	// Don't send notifications if transport is nil (not connected yet)
+	if c.transport == nil {
+		return
+	}
+
 	notification := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  "notifications/roots/list_changed",
@@ -240,29 +252,34 @@ func (c *clientImpl) sendRootsListChangedNotification() {
 		return
 	}
 
-	// Send notification (fire and forget)
-	_, _ = c.transport.Send(notificationData)
-}
+	// Send notification asynchronously (fire-and-forget as per MCP spec)
+	if c.transport != nil {
+		go func() {
+			defer func() {
+				// Recover from any panics in the transport layer
+				if r := recover(); r != nil {
+					// Notification failed, but don't crash the application
+				}
+			}()
 
-// isValidFileURI validates that the URI is a valid file:// URI according to MCP specification
-func isValidFileURI(uri string) bool {
-	// According to MCP specification, root URIs MUST be file:// URIs
-	return len(uri) > 7 && uri[:7] == "file://"
+			// Send notification - if it hangs, it won't affect the main operation
+			_, _ = c.transport.Send(notificationData)
+		}()
+	}
 }
 
 // ensureFileURI converts a filesystem path to a file:// URI as required by MCP specification.
 // If the input is already a valid file:// URI, it returns it unchanged.
-func ensureFileURI(path string) string {
+// Returns an error if the input cannot be converted to a valid file:// URI.
+func ensureFileURI(path string) (string, error) {
 	// Check if it's already a file:// URI
 	if strings.HasPrefix(path, "file://") {
-		return path
+		return path, nil
 	}
 
 	// Check if it's a valid URI with a different scheme
 	if u, err := url.Parse(path); err == nil && u.Scheme != "" && u.Scheme != "file" {
-		// It's a URI with a different scheme, leave it as-is
-		// (though MCP spec requires file:// URIs, this preserves user input for error reporting)
-		return path
+		return "", fmt.Errorf("invalid URI scheme '%s': root URIs must use file:// scheme", u.Scheme)
 	}
 
 	// Convert filesystem path to file:// URI
@@ -271,11 +288,10 @@ func ensureFileURI(path string) string {
 		var err error
 		path, err = filepath.Abs(path)
 		if err != nil {
-			// If we can't make it absolute, return as-is for error reporting
-			return path
+			return "", fmt.Errorf("failed to convert relative path to absolute: %w", err)
 		}
 	}
 
 	// Convert to file:// URI
-	return "file://" + filepath.ToSlash(path)
+	return "file://" + filepath.ToSlash(path), nil
 }
