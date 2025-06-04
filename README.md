@@ -532,9 +532,9 @@ if err != nil {
 fmt.Printf("File content: %v\n", fileContent)
 
 // Get a resource with additional parameters
-user, err := client.GetResourceWithParams("/users/123", map[string]interface{}{
+user, err := client.GetResource("/users/123", client.WithResourceParams(map[string]interface{}{
     "include_posts": true,
-})
+}))
 if err != nil {
     log.Fatalf("Failed to get user: %v", err)
 }

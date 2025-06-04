@@ -613,11 +613,11 @@ func SetupMockTransport(version string) *MockTransport {
 		defaultResourceResponse, _ = json.Marshal(resourceResp)
 	}
 
-	// Queue resource/get response
+	// Queue resources/read response
 	m.QueueConditionalResponse(
 		defaultResourceResponse,
 		nil,
-		IsRequestMethod("resource/get"),
+		IsRequestMethod("resources/read"),
 	)
 
 	// Add response for notifications/initialized
@@ -680,7 +680,7 @@ func SetupMockTransport(version string) *MockTransport {
 		IsRequestMethod("tools/call"),
 	)
 
-	// Add default response for prompt/get
+	// Add default response for prompts/get
 	defaultPromptResponse := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      0, // Will be overridden by actual request ID
@@ -701,7 +701,7 @@ func SetupMockTransport(version string) *MockTransport {
 	m.QueueConditionalResponse(
 		promptJSON,
 		nil,
-		IsRequestMethod("prompt/get"),
+		IsRequestMethod("prompts/get"),
 	)
 
 	// Add default response for sampling/createMessage

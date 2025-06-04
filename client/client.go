@@ -125,6 +125,14 @@ type Client interface {
 	//
 	// Example:
 	//  resource, err := client.GetResource("/files/readme.txt")
+	//  // Access content based on protocol version:
+	//  if len(resource.Content) > 0 {
+	//      // 2024-11-05 format
+	//      fmt.Println("Text:", resource.Content[0].Text)
+	//  } else if len(resource.Contents) > 0 {
+	//      // 2025-03-26 format
+	//      fmt.Println("Text:", resource.Contents[0].Content[0].Text)
+	//  }
 	//
 	// For timeout support:
 	//  resource, err := client.GetResource("/files/readme.txt",
@@ -137,7 +145,7 @@ type Client interface {
 	//          "limit": 50,
 	//      }),
 	//      client.WithRequestTimeoutOption(5*time.Second))
-	GetResource(path string, opts ...RequestOption) (interface{}, error)
+	GetResource(path string, opts ...RequestOption) (*ResourceResponse, error)
 
 	// GetPrompt retrieves a prompt from the server.
 	//
@@ -161,7 +169,15 @@ type Client interface {
 	//
 	// Example:
 	//  root, err := client.GetRoot()
-	GetRoot() (interface{}, error)
+	//  // Access content based on protocol version:
+	//  if len(root.Content) > 0 {
+	//      // 2024-11-05 format
+	//      fmt.Println("Root text:", root.Content[0].Text)
+	//  } else if len(root.Contents) > 0 {
+	//      // 2025-03-26 format
+	//      fmt.Println("Root text:", root.Contents[0].Content[0].Text)
+	//  }
+	GetRoot() (*ResourceResponse, error)
 
 	// Close closes the client connection to the server and releases all resources.
 	//
@@ -622,7 +638,7 @@ func (c *clientImpl) CallTool(name string, args map[string]interface{}, opts ...
 }
 
 // GetResource retrieves a resource from the server.
-func (c *clientImpl) GetResource(uri string, opts ...RequestOption) (interface{}, error) {
+func (c *clientImpl) GetResource(uri string, opts ...RequestOption) (*ResourceResponse, error) {
 	timeout := c.extractTimeout(opts...)
 	resourceParams := c.extractResourceParams(opts...)
 
@@ -636,7 +652,93 @@ func (c *clientImpl) GetResource(uri string, opts ...RequestOption) (interface{}
 		params[key] = value
 	}
 
-	return c.sendRequestWithTimeout("resources/read", params, timeout)
+	result, err := c.sendRequestWithTimeout("resources/read", params, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get resource: %w", err)
+	}
+
+	// Parse the result into a ResourceResponse
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format from resources/read")
+	}
+
+	response := &ResourceResponse{}
+
+	// Handle both 2024-11-05 and 2025-03-26 formats
+	if contentArray, hasContent := resultMap["content"]; hasContent {
+		// 2024-11-05 format: flat content array
+		if contentItems, ok := contentArray.([]interface{}); ok {
+			response.Content = make([]ContentItem, 0, len(contentItems))
+			for _, item := range contentItems {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					contentItem := ContentItem{
+						Type:     getString(itemMap, "type"),
+						Text:     getString(itemMap, "text"),
+						ImageURL: getString(itemMap, "imageUrl"),
+						AltText:  getString(itemMap, "altText"),
+						URL:      getString(itemMap, "url"),
+						Title:    getString(itemMap, "title"),
+						Blob:     getString(itemMap, "blob"),
+						MimeType: getString(itemMap, "mimeType"),
+						Filename: getString(itemMap, "filename"),
+						Data:     itemMap["data"],
+					}
+					response.Content = append(response.Content, contentItem)
+				}
+			}
+		}
+	}
+
+	if contentsArray, hasContents := resultMap["contents"]; hasContents {
+		// 2025-03-26 format: contents array with embedded content
+		if contentsItems, ok := contentsArray.([]interface{}); ok {
+			response.Contents = make([]ResourceContent, 0, len(contentsItems))
+			for _, item := range contentsItems {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					resourceContent := ResourceContent{
+						URI:      getString(itemMap, "uri"),
+						Text:     getString(itemMap, "text"),
+						Metadata: getMap(itemMap, "metadata"),
+					}
+
+					// Parse embedded content array
+					if contentArray, hasEmbeddedContent := itemMap["content"]; hasEmbeddedContent {
+						if contentItems, ok := contentArray.([]interface{}); ok {
+							resourceContent.Content = make([]ContentItem, 0, len(contentItems))
+							for _, embeddedItem := range contentItems {
+								if embeddedMap, ok := embeddedItem.(map[string]interface{}); ok {
+									contentItem := ContentItem{
+										Type:     getString(embeddedMap, "type"),
+										Text:     getString(embeddedMap, "text"),
+										ImageURL: getString(embeddedMap, "imageUrl"),
+										AltText:  getString(embeddedMap, "altText"),
+										URL:      getString(embeddedMap, "url"),
+										Title:    getString(embeddedMap, "title"),
+										Blob:     getString(embeddedMap, "blob"),
+										MimeType: getString(embeddedMap, "mimeType"),
+										Filename: getString(embeddedMap, "filename"),
+										Data:     embeddedMap["data"],
+									}
+									resourceContent.Content = append(resourceContent.Content, contentItem)
+								}
+							}
+						}
+					}
+					response.Contents = append(response.Contents, resourceContent)
+				}
+			}
+		}
+	}
+
+	// Handle metadata
+	if metadata, hasMetadata := resultMap["metadata"]; hasMetadata {
+		if metadataMap, ok := metadata.(map[string]interface{}); ok {
+			response.Metadata = metadataMap
+		}
+	}
+
+	return response, nil
 }
 
 // GetPrompt retrieves a prompt from the server.
@@ -716,7 +818,7 @@ func (c *clientImpl) extractResourceParams(opts ...RequestOption) map[string]int
 }
 
 // GetRoot retrieves the root resource from the server.
-func (c *clientImpl) GetRoot() (interface{}, error) {
+func (c *clientImpl) GetRoot() (*ResourceResponse, error) {
 	return c.GetResource("/")
 }
 

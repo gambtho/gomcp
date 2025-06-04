@@ -221,15 +221,13 @@ func TestGetResource_Draft(t *testing.T) {
 		t.Fatalf("GetResource failed: %v", err)
 	}
 
-	// Verify the result
-	resultMap, ok := result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected result to be a map, got %T", result)
+	// Verify the result - now returns concrete ResourceResponse type
+	if result == nil {
+		t.Fatalf("Expected ResourceResponse result, got nil")
 	}
 
-	contents, ok := resultMap["contents"].([]interface{})
-	if !ok || len(contents) == 0 {
-		t.Fatalf("Expected result to have contents array, got %v", resultMap)
+	if len(result.Contents) == 0 {
+		t.Fatalf("Expected result to have contents array, got %v", result)
 	}
 
 	// Parse the sent request to verify it matches the draft spec

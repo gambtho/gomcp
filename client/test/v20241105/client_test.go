@@ -120,15 +120,13 @@ func TestGetResource_v20241105(t *testing.T) {
 		t.Fatalf("GetResource failed: %v", err)
 	}
 
-	// Verify the result
-	resultMap, ok := result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected result to be a map, got %T", result)
+	// Verify the result - now returns concrete ResourceResponse type
+	if result == nil {
+		t.Fatalf("Expected ResourceResponse result, got nil")
 	}
 
-	content, ok := resultMap["content"].([]interface{})
-	if !ok || len(content) == 0 {
-		t.Fatalf("Expected result to have content array, got %v", resultMap)
+	if len(result.Content) == 0 {
+		t.Fatalf("Expected result to have content array, got %v", result)
 	}
 
 	// Parse the sent request to verify it matches the 2024-11-05 spec

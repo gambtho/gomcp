@@ -192,24 +192,12 @@ func TestCrossVersionFeatureDetection(t *testing.T) {
 			// Verify response format based on version
 			if tc.hasEnhancedResources {
 				// Check for 2025-03-26 specific format (contents array)
-				resultMap, ok := resource.(map[string]interface{})
-				if !ok {
-					t.Fatalf("Expected map result, got %T", resource)
-				}
-
-				_, hasContents := resultMap["contents"]
-				if !hasContents {
+				if len(resource.Contents) == 0 {
 					t.Errorf("Expected 'contents' field in 2025-03-26 response, but not found")
 				}
 			} else {
 				// Check for draft/2024-11-05 format (content array)
-				resultMap, ok := resource.(map[string]interface{})
-				if !ok {
-					t.Fatalf("Expected map result, got %T", resource)
-				}
-
-				_, hasContent := resultMap["content"]
-				if !hasContent && tc.version != "draft" {
+				if len(resource.Content) == 0 && tc.version != "draft" {
 					t.Errorf("Expected 'content' field in %s response, but not found", tc.version)
 				}
 			}

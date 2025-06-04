@@ -105,6 +105,44 @@ type PromptResponse struct {
 	Messages    []PromptMessage `json:"messages"`
 }
 
+// ContentItem represents a content item in a resource response.
+type ContentItem struct {
+	Type     string      `json:"type"`
+	Text     string      `json:"text,omitempty"`
+	ImageURL string      `json:"imageUrl,omitempty"`
+	AltText  string      `json:"altText,omitempty"`
+	URL      string      `json:"url,omitempty"`
+	Title    string      `json:"title,omitempty"`
+	Blob     string      `json:"blob,omitempty"`
+	MimeType string      `json:"mimeType,omitempty"`
+	Data     interface{} `json:"data,omitempty"`
+	Filename string      `json:"filename,omitempty"`
+}
+
+// ResourceContent represents a single resource item (2025-03-26 format).
+type ResourceContent struct {
+	URI      string                 `json:"uri"`
+	Text     string                 `json:"text,omitempty"`
+	Content  []ContentItem          `json:"content"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// ResourceResponse represents the actual response from a resource request.
+// This matches the MCP protocol format exactly - no wrapper.
+// The format depends on the negotiated protocol version:
+// - 2024-11-05: {"content": [ContentItem...], "metadata": {...}}
+// - 2025-03-26: {"contents": [ResourceContent...], "metadata": {...}}
+type ResourceResponse struct {
+	// Content field (2024-11-05 format) - flat array of content items
+	Content []ContentItem `json:"content,omitempty"`
+
+	// Contents field (2025-03-26 format) - array of resource objects with content
+	Contents []ResourceContent `json:"contents,omitempty"`
+
+	// Metadata that can be present in either format
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
 // BatchRequest represents a single request within a batch operation.
 type BatchRequest struct {
 	// Method is the JSON-RPC method to call (e.g., "tools/call", "resources/read")
