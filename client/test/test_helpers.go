@@ -283,14 +283,23 @@ func CreateResourceResponseWithPath(version string, path string, content interfa
 	return responseJSON
 }
 
-// CreatePromptResponse creates a prompt response with the given prompt and rendered text
+// CreatePromptResponse creates a prompt response with the given prompt template and rendered text
+// This matches the new PromptResponse struct with description and messages
 func CreatePromptResponse(prompt, rendered string) []byte {
 	response := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      3,
 		"result": map[string]interface{}{
-			"prompt":   prompt,
-			"rendered": rendered,
+			"description": "Test prompt response",
+			"messages": []map[string]interface{}{
+				{
+					"role": "user",
+					"content": map[string]interface{}{
+						"type": "text",
+						"text": rendered,
+					},
+				},
+			},
 		},
 	}
 
@@ -299,13 +308,22 @@ func CreatePromptResponse(prompt, rendered string) []byte {
 }
 
 // CreatePromptResponseWithID creates a prompt response with a specific ID
+// This matches the new PromptResponse struct with description and messages
 func CreatePromptResponseWithID(id interface{}, prompt, rendered string, metadata map[string]interface{}) []byte {
 	result := map[string]interface{}{
-		"prompt":   prompt,
-		"rendered": rendered,
+		"description": "Test prompt response",
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": map[string]interface{}{
+					"type": "text",
+					"text": rendered,
+				},
+			},
+		},
 	}
 
-	// Add metadata if provided
+	// Add metadata if provided (for backward compatibility)
 	for k, v := range metadata {
 		result[k] = v
 	}

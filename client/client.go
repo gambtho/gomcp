@@ -153,7 +153,7 @@ type Client interface {
 	//  prompt, err := client.GetPrompt("greeting", map[string]interface{}{
 	//      "name": "Alice",
 	//  }, client.WithRequestTimeoutOption(3*time.Second))
-	GetPrompt(name string, variables map[string]interface{}, opts ...RequestOption) (interface{}, error)
+	GetPrompt(name string, variables map[string]interface{}, opts ...RequestOption) (*PromptResponse, error)
 
 	// GetRoot retrieves the root resource from the server.
 	//
@@ -640,7 +640,7 @@ func (c *clientImpl) GetResource(uri string, opts ...RequestOption) (interface{}
 }
 
 // GetPrompt retrieves a prompt from the server.
-func (c *clientImpl) GetPrompt(name string, variables map[string]interface{}, opts ...RequestOption) (interface{}, error) {
+func (c *clientImpl) GetPrompt(name string, variables map[string]interface{}, opts ...RequestOption) (*PromptResponse, error) {
 	timeout := c.extractTimeout(opts...)
 
 	params := map[string]interface{}{
@@ -651,7 +651,44 @@ func (c *clientImpl) GetPrompt(name string, variables map[string]interface{}, op
 		params["arguments"] = variables
 	}
 
-	return c.sendRequestWithTimeout("prompts/get", params, timeout)
+	result, err := c.sendRequestWithTimeout("prompts/get", params, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get prompt: %w", err)
+	}
+
+	// Parse the response into concrete types
+	responseMap, ok := result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format from prompts/get")
+	}
+
+	promptResponse := &PromptResponse{
+		Description: getString(responseMap, "description"),
+	}
+
+	// Parse messages
+	if messagesData, ok := responseMap["messages"].([]interface{}); ok {
+		promptResponse.Messages = make([]PromptMessage, 0, len(messagesData))
+		for _, messageData := range messagesData {
+			if messageMap, ok := messageData.(map[string]interface{}); ok {
+				message := PromptMessage{
+					Role: getString(messageMap, "role"),
+				}
+
+				// Parse content
+				if contentData, ok := messageMap["content"].(map[string]interface{}); ok {
+					message.Content = PromptContent{
+						Type: getString(contentData, "type"),
+						Text: getString(contentData, "text"),
+					}
+				}
+
+				promptResponse.Messages = append(promptResponse.Messages, message)
+			}
+		}
+	}
+
+	return promptResponse, nil
 }
 
 // extractTimeout extracts a timeout duration from request options.

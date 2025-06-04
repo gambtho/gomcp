@@ -444,20 +444,23 @@ func TestPromptOperations(t *testing.T) {
 					t.Fatalf("GetPrompt failed: %v", err)
 				}
 
-				// Verify the result
-				resultMap, ok := result.(map[string]interface{})
-				if !ok {
-					t.Fatalf("Expected map result, got %T", result)
+				// Verify the result - now returns concrete PromptResponse type
+				if result == nil {
+					t.Fatalf("Expected PromptResponse result, got nil")
 				}
 
-				prompt, ok := resultMap["prompt"].(string)
-				if !ok || prompt != "Hello {{name}}" {
-					t.Errorf("Expected prompt template 'Hello {{name}}', got %v", prompt)
+				if result.Description == "" {
+					t.Errorf("Expected description in prompt response")
 				}
 
-				rendered, ok := resultMap["rendered"].(string)
-				if !ok || rendered != "Hello Test" {
-					t.Errorf("Expected rendered text 'Hello Test', got %v", rendered)
+				if len(result.Messages) == 0 {
+					t.Fatalf("Expected at least one message in prompt response")
+				}
+
+				// Check that the message was rendered correctly
+				firstMessage := result.Messages[0]
+				if firstMessage.Content.Text != "Hello Test" {
+					t.Errorf("Expected rendered text 'Hello Test', got %v", firstMessage.Content.Text)
 				}
 
 				// Verify request format

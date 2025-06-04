@@ -234,15 +234,19 @@ func TestGetPrompt_v20241105(t *testing.T) {
 		t.Fatalf("GetPrompt failed: %v", err)
 	}
 
-	// Verify the result
-	resultMap, ok := result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected map result, got %T", result)
+	// Verify the result - now returns concrete PromptResponse type
+	if result == nil {
+		t.Fatalf("Expected PromptResponse result, got nil")
 	}
 
-	rendered, ok := resultMap["rendered"].(string)
-	if !ok || rendered != "Hello Test User" {
-		t.Errorf("Expected rendered text 'Hello Test User', got %v", resultMap)
+	if len(result.Messages) == 0 {
+		t.Fatalf("Expected at least one message in prompt response")
+	}
+
+	// Check that the message was rendered correctly
+	firstMessage := result.Messages[0]
+	if firstMessage.Content.Text != "Hello Test User" {
+		t.Errorf("Expected rendered text 'Hello Test User', got %v", firstMessage.Content.Text)
 	}
 }
 

@@ -685,8 +685,16 @@ func SetupMockTransport(version string) *MockTransport {
 		"jsonrpc": "2.0",
 		"id":      0, // Will be overridden by actual request ID
 		"result": map[string]interface{}{
-			"prompt":   "{{variable}} default prompt",
-			"rendered": "Default rendered prompt",
+			"description": "Default prompt description",
+			"messages": []map[string]interface{}{
+				{
+					"role": "user",
+					"content": map[string]interface{}{
+						"type": "text",
+						"text": "Default rendered prompt",
+					},
+				},
+			},
 		},
 	}
 	promptJSON, _ := json.Marshal(defaultPromptResponse)

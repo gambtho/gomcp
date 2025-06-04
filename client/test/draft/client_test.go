@@ -330,13 +330,21 @@ func TestCallTool_Draft(t *testing.T) {
 func TestGetPrompt_Draft(t *testing.T) {
 	c, mockTransport := setupTest(t)
 
-	// Set up the mock response for the prompt request with draft-specific fields
+	// Set up the mock response for the prompt request with new format
 	promptResponse := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      4,
 		"result": map[string]interface{}{
-			"prompt":   "Hello, {{name}}! The answer is {{result}}.",
-			"rendered": "Hello, World! The answer is 42.",
+			"description": "Test prompt for draft version",
+			"messages": []map[string]interface{}{
+				{
+					"role": "user",
+					"content": map[string]interface{}{
+						"type": "text",
+						"text": "Hello, World! The answer is 42.",
+					},
+				},
+			},
 			"metadata": map[string]interface{}{
 				"tokens":       15,
 				"experimental": true,
@@ -359,15 +367,19 @@ func TestGetPrompt_Draft(t *testing.T) {
 		t.Fatalf("GetPrompt failed: %v", err)
 	}
 
-	// Verify the result
-	resultMap, ok := result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected result to be a map, got %T", result)
+	// Verify the result - now returns concrete PromptResponse type
+	if result == nil {
+		t.Fatalf("Expected PromptResponse result, got nil")
 	}
 
-	rendered, ok := resultMap["rendered"].(string)
-	if !ok || rendered != "Hello, World! The answer is 42." {
-		t.Errorf("Expected rendered prompt, got %v", resultMap)
+	if len(result.Messages) == 0 {
+		t.Fatalf("Expected at least one message in prompt response")
+	}
+
+	// Check that the message was rendered correctly
+	firstMessage := result.Messages[0]
+	if firstMessage.Content.Text != "Hello, World! The answer is 42." {
+		t.Errorf("Expected rendered text 'Hello, World! The answer is 42.', got %v", firstMessage.Content.Text)
 	}
 
 	// Parse the sent request to verify it matches the draft spec

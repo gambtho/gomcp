@@ -86,6 +86,25 @@ type PromptArgument struct {
 	Required    bool   `json:"required,omitempty"`
 }
 
+// PromptMessage represents a rendered message from a prompt template.
+type PromptMessage struct {
+	Role    string        `json:"role"`
+	Content PromptContent `json:"content"`
+}
+
+// PromptContent represents the content of a prompt message.
+type PromptContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// PromptResponse represents the response from a prompt request.
+// This provides concrete types instead of interface{} for better type safety.
+type PromptResponse struct {
+	Description string          `json:"description"`
+	Messages    []PromptMessage `json:"messages"`
+}
+
 // BatchRequest represents a single request within a batch operation.
 type BatchRequest struct {
 	// Method is the JSON-RPC method to call (e.g., "tools/call", "resources/read")

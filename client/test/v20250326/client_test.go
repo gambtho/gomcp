@@ -122,20 +122,19 @@ func TestGetPrompt_v20250326(t *testing.T) {
 		t.Errorf("Expected prompt name to be 'test-prompt', got %v", params["name"])
 	}
 
-	// Verify the result was parsed correctly
-	resultMap, ok := result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected result to be a map, got %T", result)
+	// Verify the result was parsed correctly - now returns concrete PromptResponse type
+	if result == nil {
+		t.Fatalf("Expected PromptResponse result, got nil")
 	}
 
-	prompt, ok := resultMap["prompt"].(string)
-	if !ok || prompt != "Hello {{name}}" {
-		t.Errorf("Expected prompt 'Hello {{name}}', got %v", prompt)
+	if len(result.Messages) == 0 {
+		t.Fatalf("Expected at least one message in prompt response")
 	}
 
-	rendered, ok := resultMap["rendered"].(string)
-	if !ok || rendered != "Hello World" {
-		t.Errorf("Expected rendered 'Hello World', got %v", rendered)
+	// Check that the message was rendered correctly
+	firstMessage := result.Messages[0]
+	if firstMessage.Content.Text != "Hello World" {
+		t.Errorf("Expected rendered text 'Hello World', got %v", firstMessage.Content.Text)
 	}
 }
 
