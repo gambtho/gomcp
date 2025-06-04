@@ -15,9 +15,9 @@ const (
 
 // SupportedVersions is a list of all supported MCP specification versions in order of preference (newest first)
 var SupportedVersions = []string{
-	VersionDraft,    // Draft is always the most preferred as it has the newest features
-	Version20250326, // Next is the latest stable version
-	Version20241105, // Then the previous stable version
+	Version20250326, // Latest stable version - default for better interoperability
+	VersionDraft,    // Draft has newest features but limited compatibility
+	Version20241105, // Previous stable version
 }
 
 // VersionDetector detects and negotiates MCP versions
@@ -90,6 +90,8 @@ func NormalizeVersion(version string) string {
 				return NormalizeVersion(v)
 			}
 		}
+		// If all versions are draft (shouldn't happen), return the first one
+		return NormalizeVersion(SupportedVersions[0])
 	}
 
 	// Handle date format normalization (YYYY-MM-DD)
@@ -152,10 +154,19 @@ func (d *VersionDetector) IsVersionCompatible(v1, v2 string) bool {
 		return true
 	}
 
-	// Draft is compatible with the latest stable version
-	if (nv1 == NormalizeVersion(VersionDraft) && nv2 == NormalizeVersion(SupportedVersions[1])) ||
-		(nv2 == NormalizeVersion(VersionDraft) && nv1 == NormalizeVersion(SupportedVersions[1])) {
-		return true
+	// Draft is compatible with the latest stable version (first non-draft version)
+	latestStable := ""
+	for _, v := range SupportedVersions {
+		if v != VersionDraft {
+			latestStable = v
+			break
+		}
+	}
+	if latestStable != "" {
+		if (nv1 == NormalizeVersion(VersionDraft) && nv2 == NormalizeVersion(latestStable)) ||
+			(nv2 == NormalizeVersion(VersionDraft) && nv1 == NormalizeVersion(latestStable)) {
+			return true
+		}
 	}
 
 	// Otherwise, different versions are not compatible

@@ -53,7 +53,7 @@ func TestVersionDetection(t *testing.T) {
 				"type": "request",
 				"id":   "123",
 			},
-			expected:    VersionDraft, // Default version
+			expected:    Version20250326, // Default version is now latest stable
 			expectError: false,
 		},
 		{
@@ -71,7 +71,7 @@ func TestVersionDetection(t *testing.T) {
 			message: map[string]interface{}{
 				"invalid": true,
 			},
-			expected:    VersionDraft, // Default version used for malformed messages
+			expected:    Version20250326, // Default version used for malformed messages
 			expectError: false,
 		},
 		{
@@ -91,7 +91,7 @@ func TestVersionDetection(t *testing.T) {
 				"version": "latest",
 				"id":      "123",
 			},
-			expected:    VersionDraft, // Latest is draft
+			expected:    Version20250326, // Latest is now 2025-03-26 (first in SupportedVersions)
 			expectError: false,
 		},
 	}
@@ -192,7 +192,7 @@ func TestVersionNegotiation(t *testing.T) {
 		{
 			name:           "latest keyword",
 			clientVersions: []string{"latest"},
-			serverVersions: []string{VersionDraft},
+			serverVersions: []string{Version20250326},
 			expected:       "latest", // Original client version string preserved
 			expectError:    false,
 		},
@@ -279,7 +279,7 @@ func TestVersionCompatibility(t *testing.T) {
 		{
 			name:     "latest keyword and actual version",
 			version1: "latest",
-			version2: VersionDraft,
+			version2: Version20250326,
 			expected: true,
 		},
 	}
@@ -307,7 +307,7 @@ func TestNormalizeVersion(t *testing.T) {
 		{"V2025-03-26", "2025-03-26"},
 		{"latest", NormalizeVersion(SupportedVersions[0])},
 		{"current", NormalizeVersion(SupportedVersions[0])},
-		{"stable", NormalizeVersion(SupportedVersions[1])},
+		{"stable", "2025-03-26"}, // Stable should be first non-draft version
 	}
 
 	for _, tt := range tests {

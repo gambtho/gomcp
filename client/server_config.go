@@ -38,9 +38,10 @@ type MCPServer struct {
 
 // ServerRegistry manages a collection of MCP servers loaded from configuration
 type ServerRegistry struct {
-	servers map[string]*MCPServer
-	logger  *slog.Logger
-	mu      sync.RWMutex
+	servers         map[string]*MCPServer
+	logger          *slog.Logger
+	protocolVersion string
+	mu              sync.RWMutex
 }
 
 // ServerRegistryOption configures a ServerRegistry
@@ -52,6 +53,13 @@ type ServerRegistryOption func(*ServerRegistry)
 func WithRegistryLogger(logger *slog.Logger) ServerRegistryOption {
 	return func(r *ServerRegistry) {
 		r.logger = logger
+	}
+}
+
+// set the protocol version
+func WithRegistryProtocolVersion(version string) ServerRegistryOption {
+	return func(r *ServerRegistry) {
+		r.protocolVersion = version
 	}
 }
 

@@ -35,9 +35,9 @@ func TestInitializeResponse_Draft(t *testing.T) {
 			expectedVersion: "draft",
 		},
 		{
-			name:            "latest version request should use draft",
+			name:            "latest version request in draft context",
 			clientVersion:   "latest",
-			expectedVersion: "draft",
+			expectedVersion: "draft", // In draft test context, latest resolves to draft
 		},
 	}
 
