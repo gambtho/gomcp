@@ -232,11 +232,7 @@ func (s *serverImpl) ProcessPromptList(ctx *Context) (interface{}, error) {
 		promptInfo := map[string]interface{}{
 			"name":        prompt.Name,
 			"description": prompt.Description,
-		}
-
-		// Include arguments if available
-		if len(prompt.Arguments) > 0 {
-			promptInfo["arguments"] = prompt.Arguments
+			"arguments":   prompt.Arguments, // Always include arguments field, even if empty
 		}
 
 		prompts = append(prompts, promptInfo)
