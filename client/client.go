@@ -472,6 +472,20 @@ type Client interface {
 
 	// Ping sends a ping request to the server to verify connection health.
 	Ping() error
+
+	// WaitForReady waits for the client to be fully connected and ready to handle requests.
+	//
+	// This method blocks until the client is connected, initialized, and can successfully
+	// ping the server, or until the timeout is reached. It's useful for ensuring the
+	// server is fully ready before making API calls.
+	//
+	// Example:
+	//  if err := client.WaitForReady(5 * time.Second); err != nil {
+	//      log.Fatal("Server not ready:", err)
+	//  }
+	//  // Now safe to make API calls
+	//  tools, err := client.ListTools()
+	WaitForReady(timeout time.Duration) error
 }
 
 // clientImpl is the concrete implementation of the Client interface.
@@ -1260,5 +1274,47 @@ func (c *clientImpl) SupportsListChangedNotifications(resourceType string) bool 
 		return c.serverCapabilities.Tools != nil && c.serverCapabilities.Tools.ListChanged
 	default:
 		return false
+	}
+}
+
+// WaitForReady waits for the client to be fully connected and ready to handle requests.
+//
+// This method blocks until the client is connected, initialized, and can successfully
+// ping the server, or until the timeout is reached. It's useful for ensuring the
+// server is fully ready before making API calls.
+//
+// Example:
+//
+//	if err := client.WaitForReady(5 * time.Second); err != nil {
+//	    log.Fatal("Server not ready:", err)
+//	}
+//	// Now safe to make API calls
+//	tools, err := client.ListTools()
+func (c *clientImpl) WaitForReady(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(c.ctx, timeout)
+	defer cancel()
+
+	// First check if already ready
+	if c.IsConnected() && c.IsInitialized() {
+		if err := c.Ping(); err == nil {
+			return nil
+		}
+	}
+
+	// Wait for readiness with polling
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("client not ready within timeout: %w", ctx.Err())
+		case <-ticker.C:
+			if c.IsConnected() && c.IsInitialized() {
+				if err := c.Ping(); err == nil {
+					return nil
+				}
+			}
+		}
 	}
 }
