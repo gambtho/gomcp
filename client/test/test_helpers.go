@@ -3,6 +3,8 @@ package test
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
 	"reflect"
 	"testing"
 
@@ -17,10 +19,16 @@ func SetupClientWithMockTransport(t *testing.T, version string) (client.Client, 
 	// Ensure the mock transport is connected to prevent "connection closed" errors
 	EnsureConnected(mockTransport)
 
+	// Create a debug logger to see debug output
+	debugLogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+
 	// Create a new client with the mock transport
 	c, err := client.NewClient("test://server",
 		client.WithTransport(mockTransport),
 		client.WithVersionDetector(mcp.NewVersionDetector()),
+		client.WithLogger(debugLogger),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)

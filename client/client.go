@@ -977,40 +977,45 @@ func (c *clientImpl) ListPrompts(opts ...RequestOption) ([]Prompt, error) {
 			return nil, fmt.Errorf("failed to list prompts: %w", err)
 		}
 
-		// Parse the response
-		response, ok := result.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("invalid response format from prompts/list")
-		}
-
-		// Extract prompts from the response
-		promptsData, ok := response["prompts"].([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("invalid prompts format in response")
-		}
-
-		// Convert each prompt to our Prompt struct
-		for _, promptData := range promptsData {
-			promptMap, ok := promptData.(map[string]interface{})
-			if !ok {
-				continue
+		// Parse the response using struct-based unmarshaling
+		var responseBytes []byte
+		switch v := result.(type) {
+		case []byte: // If sendRequest returns raw JSON bytes
+			responseBytes = v
+		case string: // If sendRequest returns JSON as a string
+			responseBytes = []byte(v)
+		case map[string]interface{}: // If sendRequest returns a parsed generic JSON object
+			// This is a common scenario. To use json.Unmarshal with our specific structs
+			// (like the anonymous struct for apiData), we marshal this map back to
+			// JSON bytes first. This allows encoding/json to use the struct tags
+			// for proper mapping.
+			var marshalErr error
+			responseBytes, marshalErr = json.Marshal(v)
+			if marshalErr != nil {
+				return nil, fmt.Errorf("failed to re-marshal response for parsing: %w", marshalErr)
 			}
-
-			prompt := Prompt{
-				Name:        getString(promptMap, "name"),
-				Description: getString(promptMap, "description"),
-				Arguments:   getPromptArguments(promptMap, "arguments"),
-			}
-
-			allPrompts = append(allPrompts, prompt)
+		default:
+			return nil, fmt.Errorf("unexpected response type from sendRequest: %T", result)
 		}
+
+		// Use the anonymous struct for unmarshaling with proper JSON tags
+		var apiData struct {
+			Prompts    []Prompt `json:"prompts"`
+			NextCursor string   `json:"nextCursor,omitempty"`
+		}
+
+		if err := json.Unmarshal(responseBytes, &apiData); err != nil {
+			return nil, fmt.Errorf("failed to parse prompts/list response: %w", err)
+		}
+
+		// Add the prompts to our collection
+		allPrompts = append(allPrompts, apiData.Prompts...)
 
 		// Check if there are more pages
-		nextCursor, hasMore := response["nextCursor"].(string)
-		if !hasMore || nextCursor == "" {
+		if apiData.NextCursor == "" {
 			break
 		}
-		cursor = nextCursor
+		cursor = apiData.NextCursor
 	}
 
 	return allPrompts, nil
