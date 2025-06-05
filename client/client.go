@@ -980,6 +980,9 @@ func (c *clientImpl) ListPrompts(opts ...RequestOption) ([]Prompt, error) {
 		// Parse the response using struct-based unmarshaling
 		var responseBytes []byte
 		switch v := result.(type) {
+		case nil: // Handle nil response (empty result)
+			// For nil responses, create an empty JSON object to parse
+			responseBytes = []byte("{}")
 		case []byte: // If sendRequest returns raw JSON bytes
 			responseBytes = v
 		case string: // If sendRequest returns JSON as a string
