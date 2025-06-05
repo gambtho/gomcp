@@ -41,6 +41,9 @@ type ServerRegistry struct {
 	servers map[string]*MCPServer
 	logger  *slog.Logger
 	mu      sync.RWMutex
+	closed  bool // Track if registry has been closed
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 // ServerRegistryOption configures a ServerRegistry
@@ -58,9 +61,14 @@ func WithRegistryLogger(logger *slog.Logger) ServerRegistryOption {
 // NewServerRegistry creates a new empty server registry.
 // By default, no logging is enabled to avoid interfering with stdio-based MCP communication.
 func NewServerRegistry(opts ...ServerRegistryOption) *ServerRegistry {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	r := &ServerRegistry{
 		servers: make(map[string]*MCPServer),
 		logger:  nil, // Default to no logging to avoid stdio interference
+		closed:  false,
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 
 	for _, opt := range opts {
@@ -129,6 +137,13 @@ func (r *ServerRegistry) ApplyConfig(config ServerConfig) error {
 
 // StartServer starts a server from its definition and connects a client to it
 func (r *ServerRegistry) StartServer(name string, def ServerDefinition) error {
+	// Check if registry is closed
+	r.mu.RLock()
+	if r.closed {
+		r.mu.RUnlock()
+		return fmt.Errorf("cannot start server %s: registry is closed", name)
+	}
+	r.mu.RUnlock()
 	// Create command
 	cmd := exec.Command(def.Command, def.Args...)
 
@@ -178,12 +193,12 @@ func (r *ServerRegistry) StartServer(name string, def ServerDefinition) error {
 	// Create the client and connect to the server
 	client, err := NewClient(name, clientOpts...)
 	if err != nil {
-		// Kill the process if client creation fails
-		if err := cmd.Process.Kill(); err != nil {
-			slog.Default().Error("Failed to kill server process", "error", err)
-		}
-		if err := cmd.Wait(); err != nil {
-			slog.Default().Error("Failed to wait for server process", "error", err)
+		// Clean up the process if client creation fails
+		if killErr := r.terminateProcess(cmd, name); killErr != nil {
+			if r.logger != nil {
+				r.logger.Error("Failed to clean up process after client creation failure",
+					"server", name, "error", killErr)
+			}
 		}
 		return fmt.Errorf("failed to create client for server %s: %w", name, err)
 	}
@@ -195,6 +210,12 @@ func (r *ServerRegistry) StartServer(name string, def ServerDefinition) error {
 		r.mu.Unlock()
 		// Clean up the client and process we just created
 		client.Close()
+		if killErr := r.terminateProcess(cmd, name); killErr != nil {
+			if r.logger != nil {
+				r.logger.Error("Failed to clean up duplicate server process",
+					"server", name, "error", killErr)
+			}
+		}
 		return fmt.Errorf("server %s already exists", name)
 	}
 	// Store the server in our registry
@@ -244,29 +265,93 @@ func (r *ServerRegistry) StopServer(name string) error {
 		return fmt.Errorf("server %s not found", name)
 	}
 
-	// Close the client first
-	if err := server.Client.Close(); err != nil {
-		return fmt.Errorf("failed to close client: %w", err)
-	}
-
-	// Then terminate the process (it may have already exited gracefully)
-	if err := server.cmd.Process.Kill(); err != nil {
-		// Only log as warning if the process wasn't already dead
-		if !strings.Contains(err.Error(), "process already finished") {
-			slog.Default().Warn("Process kill failed (may have already exited)", "error", err)
-		}
-	}
-	if err := server.cmd.Wait(); err != nil {
-		// Don't log "signal: killed" as an error since we just killed it
-		if !strings.Contains(err.Error(), "signal: killed") {
-			slog.Default().Warn("Process wait failed", "error", err)
+	// Close the client first to signal graceful shutdown (if client exists)
+	if server.Client != nil {
+		if err := server.Client.Close(); err != nil {
+			if r.logger != nil {
+				r.logger.Warn("Failed to close client gracefully", "server", name, "error", err)
+			}
 		}
 	}
 
-	// Remove from our registry
+	// Remove from registry immediately to prevent double-cleanup
 	delete(r.servers, name)
 
+	// Gracefully terminate the process with proper timeout and escalation
+	if err := r.terminateProcess(server.cmd, name); err != nil {
+		if r.logger != nil {
+			r.logger.Error("Failed to terminate server process", "server", name, "error", err)
+		}
+		return fmt.Errorf("failed to terminate server %s: %w", name, err)
+	}
+
 	return nil
+}
+
+// terminateProcess gracefully terminates a process with escalating signals and timeouts
+func (r *ServerRegistry) terminateProcess(cmd *exec.Cmd, name string) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil // Already dead or never started
+	}
+
+	// Create an independent context for termination with a reasonable timeout
+	// Don't use r.ctx as it might be cancelled during Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Step 1: First close stdin to signal the process to shut down gracefully
+	// This is often how MCP servers detect client disconnect
+	if stdinCloser, ok := cmd.Stdin.(io.Closer); ok && stdinCloser != nil {
+		if err := stdinCloser.Close(); err != nil && r.logger != nil {
+			r.logger.Debug("Failed to close stdin", "server", name, "error", err)
+		}
+	}
+
+	// Wait up to 3 seconds for graceful shutdown after closing stdin
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case <-done:
+		// Process exited gracefully
+		if r.logger != nil {
+			r.logger.Debug("Process exited gracefully after stdin close", "server", name)
+		}
+		return nil
+	case <-time.After(3 * time.Second):
+		// Graceful shutdown timeout, proceed to force kill
+		if r.logger != nil {
+			r.logger.Debug("Graceful shutdown timeout, force killing", "server", name)
+		}
+	case <-ctx.Done():
+		return fmt.Errorf("termination context cancelled for process %s", name)
+	}
+
+	// Step 2: Force kill with SIGKILL
+	if err := cmd.Process.Kill(); err != nil {
+		// Process might already be dead
+		if strings.Contains(err.Error(), "process already finished") {
+			return nil
+		}
+		return fmt.Errorf("failed to kill process: %w", err)
+	}
+
+	// Step 3: Wait for process death with timeout
+	select {
+	case err := <-done:
+		// Process died (ignore "signal: killed" error since we caused it)
+		if err != nil && !strings.Contains(err.Error(), "signal: killed") {
+			if r.logger != nil {
+				r.logger.Warn("Process wait returned error", "server", name, "error", err)
+			}
+		}
+		return nil
+	case <-ctx.Done():
+		// Process still not dead after timeout - this is serious
+		return fmt.Errorf("process %s did not die after SIGKILL within timeout", name)
+	}
 }
 
 // StopAll stops all servers
@@ -286,6 +371,30 @@ func (r *ServerRegistry) StopAll() error {
 	}
 
 	return lastErr
+}
+
+// Close shuts down the ServerRegistry and ensures all processes are terminated.
+// This should be called when the application is shutting down to prevent orphaned processes.
+func (r *ServerRegistry) Close() error {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return nil // Already closed
+	}
+	r.closed = true
+	r.mu.Unlock()
+
+	// Stop all servers first, then cancel the context
+	if err := r.StopAll(); err != nil {
+		// Still cancel the context even if StopAll fails
+		r.cancel()
+		return fmt.Errorf("failed to stop all servers during close: %w", err)
+	}
+
+	// Cancel the context after successful shutdown
+	r.cancel()
+
+	return nil
 }
 
 // stdioPipeTransport implements the Transport interface for stdio pipes
