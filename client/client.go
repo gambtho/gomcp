@@ -1061,33 +1061,6 @@ func getMap(m map[string]interface{}, key string) map[string]interface{} {
 	return nil
 }
 
-// getPromptArguments safely converts prompt arguments from interface{} to []PromptArgument.
-func getPromptArguments(m map[string]interface{}, key string) []PromptArgument {
-	if argsData, ok := m[key].([]interface{}); ok {
-		var args []PromptArgument
-		for _, argData := range argsData {
-			if argMap, ok := argData.(map[string]interface{}); ok {
-				arg := PromptArgument{
-					Name:        getString(argMap, "name"),
-					Description: getString(argMap, "description"),
-					Required:    getBool(argMap, "required"),
-				}
-				args = append(args, arg)
-			}
-		}
-		return args
-	}
-	return nil
-}
-
-// getBool safely extracts a boolean value from a map.
-func getBool(m map[string]interface{}, key string) bool {
-	if val, ok := m[key].(bool); ok {
-		return val
-	}
-	return false
-}
-
 // SendBatch sends multiple requests to the server in a single batch operation.
 func (c *clientImpl) SendBatch(requests []BatchRequest, opts ...RequestOption) ([]BatchResponse, error) {
 	if len(requests) == 0 {
