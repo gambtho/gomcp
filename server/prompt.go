@@ -183,7 +183,8 @@ func extractArguments(templates []PromptTemplate) []PromptArgument {
 	}
 
 	// Convert to PromptArgument slice
-	var arguments []PromptArgument
+	// Initialize with empty slice to ensure JSON marshals to [] instead of null
+	arguments := make([]PromptArgument, 0)
 	for varName := range variableMap {
 		arguments = append(arguments, PromptArgument{
 			Name:        varName,
