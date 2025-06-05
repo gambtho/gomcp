@@ -406,13 +406,34 @@ type stdioPipeTransport struct {
 	notifyHandler  func(method string, params []byte)
 	connected      bool
 	mu             sync.RWMutex
+
+	// Request/response correlation
+	pendingRequests map[int64]chan []byte
+	pendingMu       sync.RWMutex
+	readerStarted   bool
+	readerDone      chan struct{}
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
 
 func (t *stdioPipeTransport) Connect() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if t.connected {
+		return nil
+	}
+
+	// Initialize correlation structures
+	t.pendingRequests = make(map[int64]chan []byte)
+	t.readerDone = make(chan struct{})
+	t.ctx, t.cancel = context.WithCancel(context.Background())
+
 	t.connected = true
+
+	// Start the single reader goroutine
+	t.startReader()
+
 	return nil
 }
 
@@ -424,8 +445,128 @@ func (t *stdioPipeTransport) Disconnect() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if !t.connected {
+		return nil
+	}
+
 	t.connected = false
+
+	// Cancel context to stop reader
+	if t.cancel != nil {
+		t.cancel()
+	}
+
+	// Wait for reader to finish
+	if t.readerStarted {
+		select {
+		case <-t.readerDone:
+		case <-time.After(1 * time.Second):
+			// Timeout waiting for reader to stop
+		}
+	}
+
+	// Close all pending requests
+	t.pendingMu.Lock()
+	for _, ch := range t.pendingRequests {
+		close(ch)
+	}
+	t.pendingRequests = make(map[int64]chan []byte)
+	t.pendingMu.Unlock()
+
 	return nil
+}
+
+// startReader starts the single reader goroutine that handles all responses
+func (t *stdioPipeTransport) startReader() {
+	if t.readerStarted {
+		return
+	}
+	t.readerStarted = true
+
+	go func() {
+		defer close(t.readerDone)
+
+		scanner := bufio.NewScanner(t.reader)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max size
+
+		for {
+			select {
+			case <-t.ctx.Done():
+				return
+			default:
+			}
+
+			if !scanner.Scan() {
+				if err := scanner.Err(); err != nil {
+					// Handle scan error - close all pending requests
+					t.closeAllPending()
+				}
+				return
+			}
+
+			response := make([]byte, len(scanner.Bytes()))
+			copy(response, scanner.Bytes())
+
+			// Parse JSON to extract request ID
+			var jsonResp struct {
+				ID interface{} `json:"id"`
+			}
+
+			if err := json.Unmarshal(response, &jsonResp); err != nil {
+				// Not a valid JSON response, might be notification
+				if t.notifyHandler != nil {
+					t.notifyHandler("", response)
+				}
+				continue
+			}
+
+			// Handle notifications (no ID)
+			if jsonResp.ID == nil {
+				if t.notifyHandler != nil {
+					t.notifyHandler("", response)
+				}
+				continue
+			}
+
+			// Extract request ID
+			var requestID int64
+			switch id := jsonResp.ID.(type) {
+			case float64:
+				requestID = int64(id)
+			case int64:
+				requestID = id
+			case int:
+				requestID = int64(id)
+			default:
+				// Invalid ID type, skip
+				continue
+			}
+
+			// Deliver response to waiting goroutine
+			t.pendingMu.RLock()
+			ch, exists := t.pendingRequests[requestID]
+			t.pendingMu.RUnlock()
+
+			if exists {
+				select {
+				case ch <- response:
+				default:
+					// Channel full or closed, skip
+				}
+			}
+		}
+	}()
+}
+
+// closeAllPending closes all pending request channels
+func (t *stdioPipeTransport) closeAllPending() {
+	t.pendingMu.Lock()
+	defer t.pendingMu.Unlock()
+
+	for _, ch := range t.pendingRequests {
+		close(ch)
+	}
+	t.pendingRequests = make(map[int64]chan []byte)
 }
 
 func (t *stdioPipeTransport) Send(message []byte) ([]byte, error) {
@@ -441,37 +582,63 @@ func (t *stdioPipeTransport) SendWithContext(ctx context.Context, message []byte
 		return nil, errors.New("transport not connected")
 	}
 
+	// Parse message to extract request ID
+	var jsonMsg struct {
+		ID interface{} `json:"id"`
+	}
+
+	if err := json.Unmarshal(message, &jsonMsg); err != nil {
+		return nil, fmt.Errorf("failed to parse request JSON: %w", err)
+	}
+
+	// Handle notifications (no ID) - send and return immediately
+	if jsonMsg.ID == nil {
+		if _, err := t.writer.Write(append(message, '\n')); err != nil {
+			return nil, fmt.Errorf("failed to write notification: %w", err)
+		}
+		return []byte{}, nil // Empty response for notifications
+	}
+
+	// Extract request ID
+	var requestID int64
+	switch id := jsonMsg.ID.(type) {
+	case float64:
+		requestID = int64(id)
+	case int64:
+		requestID = id
+	case int:
+		requestID = int64(id)
+	default:
+		return nil, fmt.Errorf("invalid request ID type: %T", jsonMsg.ID)
+	}
+
+	// Create response channel and register it
+	responseCh := make(chan []byte, 1)
+
+	t.pendingMu.Lock()
+	t.pendingRequests[requestID] = responseCh
+	t.pendingMu.Unlock()
+
+	// Cleanup function
+	defer func() {
+		t.pendingMu.Lock()
+		delete(t.pendingRequests, requestID)
+		t.pendingMu.Unlock()
+	}()
+
 	// Write message to the writer
 	if _, err := t.writer.Write(append(message, '\n')); err != nil {
 		return nil, fmt.Errorf("failed to write message: %w", err)
 	}
 
-	// Create a channel for the response
-	responseCh := make(chan []byte, 1)
-	errCh := make(chan error, 1)
-
-	// Read response in a goroutine
-	go func() {
-		scanner := bufio.NewScanner(t.reader)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max size
-
-		if scanner.Scan() {
-			responseCh <- scanner.Bytes()
-		} else if err := scanner.Err(); err != nil {
-			errCh <- fmt.Errorf("error reading response: %w", err)
-		} else {
-			errCh <- io.EOF
-		}
-	}()
-
 	// Wait for response or context cancellation
 	select {
 	case response := <-responseCh:
 		return response, nil
-	case err := <-errCh:
-		return nil, err
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-t.ctx.Done():
+		return nil, errors.New("transport disconnected")
 	}
 }
 

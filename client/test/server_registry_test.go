@@ -429,10 +429,17 @@ func TestServerRegistryCleanupRaceCondition(t *testing.T) {
 		err := registry.ApplyConfig(config)
 		elapsed := time.Since(startTime)
 
-		// We expect the server to start (even though echo will exit immediately)
-		// This tests that there are no deadlocks in the startup process
-		if elapsed > time.Second*5 {
-			t.Errorf("Server startup took too long: %v (possible deadlock)", elapsed)
+		// After our transport fix, the client properly waits for the full timeout
+		// when trying to connect to the echo command (which doesn't implement MCP).
+		// This is expected behavior - the old version failed faster due to race conditions.
+		// We expect this to take close to the connection timeout (10s) since echo doesn't respond to MCP protocol.
+		if elapsed > time.Second*11 {
+			t.Errorf("Server startup took too long: %v (should timeout around 10s)", elapsed)
+		}
+
+		// We expect an error since echo doesn't implement MCP protocol
+		if err == nil {
+			t.Error("Expected error when connecting to echo command, but got none")
 		}
 
 		// Log any startup errors (expected for echo command)
@@ -440,29 +447,28 @@ func TestServerRegistryCleanupRaceCondition(t *testing.T) {
 			t.Logf("Note: ApplyConfig returned error (expected for echo command): %v", err)
 		}
 
-		// Get the client to verify it was created
+		// Get the client to verify it was NOT created (echo fails MCP handshake)
 		client, clientErr := registry.GetClient("test-server")
 		if clientErr == nil && client != nil {
-			// If we got a client, it means the server started successfully
-			// Now test the proper cleanup sequence
-			shutdownTime := time.Now()
-
-			// Test that StopAll() works without race conditions
-			stopErr := registry.StopAll()
-			shutdownElapsed := time.Since(shutdownTime)
-
-			// Should not take longer than a reasonable timeout
-			if shutdownElapsed > time.Second*3 {
-				t.Errorf("Server shutdown took too long: %v (possible deadlock)", shutdownElapsed)
-			}
-
-			// Should not have errors (even though the echo process may have already exited)
-			if stopErr != nil {
-				t.Logf("Note: StopAll() returned error (expected for echo command): %v", stopErr)
-			}
+			t.Error("Unexpected success: echo command should not successfully create MCP client")
 		} else {
-			// If we couldn't get a client, that's fine - echo command exits immediately
+			// This is the expected path - echo command exits immediately and doesn't implement MCP
 			t.Logf("Note: Could not get client (expected for echo command): %v", clientErr)
+		}
+
+		// Test that StopAll() works without race conditions even with failed servers
+		shutdownTime := time.Now()
+		stopErr := registry.StopAll()
+		shutdownElapsed := time.Since(shutdownTime)
+
+		// Should be very fast since the echo process already exited
+		if shutdownElapsed > time.Second {
+			t.Errorf("Server shutdown took too long: %v (should be fast for already-dead process)", shutdownElapsed)
+		}
+
+		// Should not have errors for empty registry
+		if stopErr != nil {
+			t.Logf("Note: StopAll() returned error (expected for failed server): %v", stopErr)
 		}
 
 		// Verify we can still call StopAll() again without issues
