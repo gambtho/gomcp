@@ -842,42 +842,50 @@ func (c *clientImpl) ListTools() ([]Tool, error) {
 			return nil, fmt.Errorf("failed to list tools: %w", err)
 		}
 
-		// Parse the response
-		response, ok := result.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("invalid response format from tools/list")
-		}
+		c.logger.Debug(fmt.Sprintf("Tools list result: %#v", result))
 
-		// Extract tools from the response
-		toolsData, ok := response["tools"].([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("invalid tools format in response")
-		}
-
-		// Convert each tool to our Tool struct
-		for _, toolData := range toolsData {
-			toolMap, ok := toolData.(map[string]interface{})
-			if !ok {
-				continue
+		// Parse the response using struct-based unmarshaling
+		var responseBytes []byte
+		switch v := result.(type) {
+		case nil: // Handle nil response (empty result)
+			// For nil responses, create an empty JSON object to parse
+			responseBytes = []byte("{}")
+		case []byte: // If sendRequest returns raw JSON bytes
+			responseBytes = v
+		case string: // If sendRequest returns JSON as a string
+			responseBytes = []byte(v)
+		case map[string]interface{}: // If sendRequest returns a parsed generic JSON object
+			// This is a common scenario. To use json.Unmarshal with our specific structs
+			// (like the anonymous struct for apiData), we marshal this map back to
+			// JSON bytes first. This allows encoding/json to use the struct tags
+			// for proper mapping.
+			var marshalErr error
+			responseBytes, marshalErr = json.Marshal(v)
+			if marshalErr != nil {
+				return nil, fmt.Errorf("failed to re-marshal response for parsing: %w", marshalErr)
 			}
-
-			tool := Tool{
-				Name:         getString(toolMap, "name"),
-				Description:  getString(toolMap, "description"),
-				InputSchema:  getMap(toolMap, "inputSchema"),
-				OutputSchema: getMap(toolMap, "outputSchema"),
-				Annotations:  getMap(toolMap, "annotations"),
-			}
-
-			allTools = append(allTools, tool)
+		default:
+			return nil, fmt.Errorf("unexpected response type from sendRequest: %T", result)
 		}
+
+		// Use the anonymous struct for unmarshaling with proper JSON tags
+		var apiData struct {
+			Tools      []Tool `json:"tools"`
+			NextCursor string `json:"nextCursor,omitempty"`
+		}
+
+		if err := json.Unmarshal(responseBytes, &apiData); err != nil {
+			return nil, fmt.Errorf("failed to parse tools/list response: %w", err)
+		}
+
+		// Add the tools to our collection
+		allTools = append(allTools, apiData.Tools...)
 
 		// Check if there are more pages
-		nextCursor, hasMore := response["nextCursor"].(string)
-		if !hasMore || nextCursor == "" {
+		if apiData.NextCursor == "" {
 			break
 		}
-		cursor = nextCursor
+		cursor = apiData.NextCursor
 	}
 
 	return allTools, nil

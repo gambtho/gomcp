@@ -237,3 +237,56 @@ func TestListToolsWithPagination(t *testing.T) {
 
 	t.Logf("Successfully retrieved %d tools across multiple pages", len(tools))
 }
+
+func TestListToolsDebugOutput(t *testing.T) {
+	// Create client with mock transport using debug logger
+	c, m := SetupClientWithMockTransport(t, "2025-03-26")
+	defer c.Close()
+
+	// Add tools/list response
+	toolsResponse := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"result": map[string]interface{}{
+			"tools": []interface{}{
+				map[string]interface{}{
+					"name":        "calculator",
+					"description": "Perform mathematical calculations",
+					"inputSchema": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"operation": map[string]interface{}{
+								"type": "string",
+							},
+							"values": map[string]interface{}{
+								"type": "array",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	toolsJSON, err := json.Marshal(toolsResponse)
+	if err != nil {
+		t.Fatalf("Failed to marshal tools response: %v", err)
+	}
+
+	// Queue the response for tools/list request
+	m.QueueConditionalResponse(
+		toolsJSON,
+		nil,
+		func(req []byte) bool {
+			return isRequestMethod(req, "tools/list")
+		},
+	)
+
+	// Test ListTools - should show debug output
+	tools, err := c.ListTools()
+	if err != nil {
+		t.Fatalf("Failed to list tools: %v", err)
+	}
+
+	t.Logf("Successfully retrieved %d tools with debug output visible above", len(tools))
+}
