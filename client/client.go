@@ -843,11 +843,9 @@ func (c *clientImpl) ListTools() ([]Tool, error) {
 
 	for {
 		// Prepare parameters for the request
-		var params map[string]interface{}
+		params := map[string]interface{}{}
 		if cursor != "" {
-			params = map[string]interface{}{
-				"cursor": cursor,
-			}
+			params["cursor"] = cursor
 		}
 
 		// Send the tools/list request
@@ -912,11 +910,9 @@ func (c *clientImpl) ListResources(opts ...RequestOption) ([]Resource, error) {
 
 	for {
 		// Prepare parameters for the request
-		var params map[string]interface{}
+		params := map[string]interface{}{}
 		if cursor != "" {
-			params = map[string]interface{}{
-				"cursor": cursor,
-			}
+			params["cursor"] = cursor
 		}
 
 		// Send the resources/list request
@@ -986,11 +982,9 @@ func (c *clientImpl) ListPrompts(opts ...RequestOption) ([]Prompt, error) {
 
 	for {
 		// Prepare parameters for the request
-		var params map[string]interface{}
+		params := map[string]interface{}{}
 		if cursor != "" {
-			params = map[string]interface{}{
-				"cursor": cursor,
-			}
+			params["cursor"] = cursor
 		}
 
 		// Send the prompts/list request
