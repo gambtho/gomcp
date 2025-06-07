@@ -37,14 +37,6 @@ node_modules/
 # OS specific
 .DS_Store
 
-# Compiled Go binaries
-/examples/minimal/client/client
-/examples/minimal/server/server
-/examples/server/server
-/examples/server_config/server_config
-/examples/**/*.exe
-/examples/**/*.dll
-/examples/**/*.so
 
 # Specification files (kept locally but not in repo)
 specification/
