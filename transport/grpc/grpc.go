@@ -8,6 +8,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -129,11 +130,16 @@ type Transport struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	runningMu  sync.Mutex
+	closeOnce  sync.Once
 
 	// Channels for messaging
 	sendCh chan []byte
 	recvCh chan []byte
 	errCh  chan error
+
+	// Request/response matching for client mode
+	pendingRequests map[interface{}]chan []byte
+	pendingMu       sync.RWMutex
 }
 
 // NewTransport creates a new gRPC transport.
@@ -173,6 +179,11 @@ func (t *Transport) Initialize() error {
 	t.sendCh = make(chan []byte, t.bufferSize)
 	t.recvCh = make(chan []byte, t.bufferSize)
 	t.errCh = make(chan error, t.bufferSize)
+
+	// Initialize request/response matching for client mode
+	if !t.isServer {
+		t.pendingRequests = make(map[interface{}]chan []byte)
+	}
 
 	return nil
 }
@@ -244,10 +255,12 @@ func (t *Transport) Stop() error {
 	// Reset state
 	t.running = false
 
-	// Close channels
-	close(t.sendCh)
-	close(t.recvCh)
-	close(t.errCh)
+	// Close channels safely using sync.Once
+	t.closeOnce.Do(func() {
+		close(t.sendCh)
+		close(t.recvCh)
+		close(t.errCh)
+	})
 
 	return nil
 }
@@ -290,6 +303,116 @@ func (t *Transport) Receive() ([]byte, error) {
 		return nil, err
 	case <-t.ctx.Done():
 		return nil, fmt.Errorf("receive canceled: %w", t.ctx.Err())
+	}
+}
+
+// SendWithContext sends a message and waits for the corresponding response (client mode only).
+// This method implements proper request/response matching using JSON-RPC IDs.
+func (t *Transport) SendWithContext(ctx context.Context, message []byte) ([]byte, error) {
+	if t.isServer {
+		// Server mode doesn't support request/response matching
+		return nil, fmt.Errorf("SendWithContext not supported in server mode")
+	}
+
+	// Parse message to extract request ID
+	var requestMap map[string]interface{}
+	if err := json.Unmarshal(message, &requestMap); err != nil {
+		return nil, fmt.Errorf("invalid JSON message: %w", err)
+	}
+
+	requestID := requestMap["id"]
+	if requestID == nil {
+		// This is a notification (no response expected)
+		if err := t.Send(message); err != nil {
+			return nil, err
+		}
+		return []byte{}, nil
+	}
+
+	// Create response channel for this request
+	responseCh := make(chan []byte, 1)
+
+	// Register the request
+	t.pendingMu.Lock()
+	t.pendingRequests[requestID] = responseCh
+	t.pendingMu.Unlock()
+
+	// Clean up when done
+	defer func() {
+		t.pendingMu.Lock()
+		delete(t.pendingRequests, requestID)
+		t.pendingMu.Unlock()
+		close(responseCh)
+	}()
+
+	// Send the request
+	if err := t.Send(message); err != nil {
+		return nil, err
+	}
+
+	// Wait for the response with context timeout
+	select {
+	case response := <-responseCh:
+		return response, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-t.ctx.Done():
+		return nil, fmt.Errorf("transport stopped: %w", t.ctx.Err())
+	}
+}
+
+// routeMessage routes incoming messages to the appropriate handler (client mode only).
+// For JSON-RPC responses, it routes them to pending request channels.
+// For notifications, it routes them to the recvCh for the Receive() method.
+func (t *Transport) routeMessage(message []byte) {
+	// Parse message to check if it's a response or notification
+	var messageMap map[string]interface{}
+	if err := json.Unmarshal(message, &messageMap); err != nil {
+		t.GetLogger().Warn("Failed to parse received message", "error", err)
+		// If we can't parse it, just put it in recvCh
+		select {
+		case t.recvCh <- message:
+		case <-t.ctx.Done():
+		default:
+			t.GetLogger().Warn("Client recvCh is full, dropping message")
+		}
+		return
+	}
+
+	// Check if this is a response (has "id" and either "result" or "error")
+	if id, hasID := messageMap["id"]; hasID && (messageMap["result"] != nil || messageMap["error"] != nil) {
+		// This is a response - route to pending request
+		t.pendingMu.RLock()
+		responseCh, exists := t.pendingRequests[id]
+		t.pendingMu.RUnlock()
+
+		if exists {
+			t.GetLogger().Info("Routing response to pending request", "id", id)
+			select {
+			case responseCh <- message:
+			case <-t.ctx.Done():
+			default:
+				t.GetLogger().Warn("Pending request channel is full", "id", id)
+			}
+		} else {
+			t.GetLogger().Warn("Received response for unknown request", "id", id)
+			// Put it in recvCh as fallback
+			select {
+			case t.recvCh <- message:
+			case <-t.ctx.Done():
+			default:
+				t.GetLogger().Warn("Client recvCh is full, dropping message")
+			}
+		}
+	} else {
+		// This is a notification or request - put in recvCh for Receive() method
+		t.GetLogger().Info("Routing notification/request to recvCh")
+		select {
+		case t.recvCh <- message:
+		case <-t.ctx.Done():
+		default:
+			t.GetLogger().Warn("Client recvCh is full, dropping message")
+		}
 	}
 }
 

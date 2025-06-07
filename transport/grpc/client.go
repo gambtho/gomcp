@@ -79,15 +79,14 @@ func (t *Transport) startClient() error {
 				content = c.BinaryContent
 			default:
 				// Unknown content type, skip
+				t.GetLogger().Warn("Client received unknown message content type", "type", fmt.Sprintf("%T", c))
 				continue
 			}
 
-			// Send to receive channel
-			select {
-			case t.recvCh <- content:
-			case <-t.ctx.Done():
-				return
-			}
+			t.GetLogger().Info("Client received message", "content", string(content))
+
+			// Route message to appropriate handler
+			t.routeMessage(content)
 		}
 	}()
 

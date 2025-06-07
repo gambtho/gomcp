@@ -21,7 +21,7 @@ All available transports have corresponding examples in the `/examples` director
 - [MQTT](mqtt-example.md) - Publish/subscribe messaging for IoT and lightweight applications
 - [NATS](nats-example.md) - Cloud-native, high-performance messaging
 - [Standard I/O](stdio-example.md) - Communication via stdin/stdout for CLI integration
-- [gRPC](grpc-example.md) - gRPC transport example (client-side, with conceptual server implementation)
+- [gRPC](grpc-example.md) - High-performance RPC with bidirectional streaming and request/response matching
 
 Each transport has specific strengths and is suitable for different use cases:
 

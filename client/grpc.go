@@ -42,10 +42,6 @@ func (t *GRPCTransport) Disconnect() error {
 
 // Send sends a message to the server and waits for a response
 func (t *GRPCTransport) Send(message []byte) ([]byte, error) {
-	if err := t.transport.Send(message); err != nil {
-		return nil, err
-	}
-
 	// Set up a timeout context for receiving the response
 	ctx := context.Background()
 	if t.reqTimeout > 0 {
@@ -54,58 +50,14 @@ func (t *GRPCTransport) Send(message []byte) ([]byte, error) {
 		defer cancel()
 	}
 
-	// Create a separate goroutine to handle the response
-	responseCh := make(chan []byte, 1)
-	errorCh := make(chan error, 1)
-
-	go func() {
-		resp, err := t.transport.Receive()
-		if err != nil {
-			errorCh <- err
-			return
-		}
-		responseCh <- resp
-	}()
-
-	// Wait for response or timeout
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case err := <-errorCh:
-		return nil, err
-	case resp := <-responseCh:
-		return resp, nil
-	}
+	// Use the transport's SendWithContext method which handles request/response matching
+	return t.transport.SendWithContext(ctx, message)
 }
 
 // SendWithContext sends a message with context for timeout/cancellation
 func (t *GRPCTransport) SendWithContext(ctx context.Context, message []byte) ([]byte, error) {
-	if err := t.transport.Send(message); err != nil {
-		return nil, err
-	}
-
-	// Create a separate goroutine to handle the response
-	responseCh := make(chan []byte, 1)
-	errorCh := make(chan error, 1)
-
-	go func() {
-		resp, err := t.transport.Receive()
-		if err != nil {
-			errorCh <- err
-			return
-		}
-		responseCh <- resp
-	}()
-
-	// Wait for response or context cancellation
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case err := <-errorCh:
-		return nil, err
-	case resp := <-responseCh:
-		return resp, nil
-	}
+	// Use the transport's SendWithContext method which handles request/response matching
+	return t.transport.SendWithContext(ctx, message)
 }
 
 // SetRequestTimeout sets the default timeout for request operations

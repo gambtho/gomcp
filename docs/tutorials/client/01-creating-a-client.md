@@ -48,6 +48,42 @@ GOMCP supports multiple transport types:
 - **WebSocket**: `ws://host:port/path` - WebSocket communication
 - **HTTP**: `http://host:port/path` - HTTP communication
 - **SSE**: `sse://host:port/path` - Server-Sent Events
+- **gRPC**: `grpc://host:port` - High-performance RPC with streaming support
+
+### gRPC Client Configuration
+
+For gRPC transport, you can use the specific gRPC client options:
+
+```go
+import "github.com/localrivet/gomcp/client"
+
+c, err := client.NewClient("grpc-client",
+    client.WithGRPC("localhost:50051"),
+    client.WithGRPCTimeout(30*time.Second),
+    client.WithGRPCKeepAlive(60*time.Second, 5*time.Second),
+    client.WithGRPCMaxMessageSize(16*1024*1024),
+)
+if err != nil {
+    log.Fatalf("Failed to create gRPC client: %v", err)
+}
+defer c.Close()
+
+// The gRPC client supports all standard MCP operations
+result, err := c.CallTool("echo", map[string]interface{}{
+    "message": "Hello from gRPC!",
+})
+```
+
+### gRPC with TLS
+
+For secure gRPC connections:
+
+```go
+c, err := client.NewClient("grpc-secure-client",
+    client.WithGRPC("localhost:50051"),
+    client.WithGRPCTLS("cert.pem", "key.pem", "ca.pem"),
+)
+```
 
 ## Client Lifecycle
 

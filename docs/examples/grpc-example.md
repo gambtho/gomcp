@@ -1,17 +1,18 @@
 # gRPC Transport Example
 
-The gRPC transport provides high-performance, strongly-typed RPC communication using Protocol Buffers. This transport is ideal for service-to-service communication with strong type safety, streaming capabilities, and cross-language compatibility.
+The gRPC transport provides high-performance, strongly-typed RPC communication using Protocol Buffers. This transport is ideal for service-to-service communication with strong type safety, bidirectional streaming capabilities, and cross-language compatibility.
 
 ## Overview
 
 In this example, we demonstrate:
 
-- Setting up client-side gRPC transport for MCP
-- Creating an MCP client that uses gRPC transport
-- Understanding how the protocol buffers definitions map to MCP concepts
-- Working with unary and streaming RPC methods
+- Setting up both gRPC server and client for MCP
+- Creating an MCP server with gRPC transport
+- Creating an MCP client that connects via gRPC
+- Understanding how the MCP JSON-RPC protocol maps to gRPC streaming
+- Working with request/response matching and concurrent operations
 
-> **Note**: The gRPC transport currently supports client-side functionality, with server-side integration in development. This example demonstrates the client usage with a conceptual server implementation.
+> **Note**: The gRPC transport is fully implemented with both server and client support, including proper request/response matching and concurrent operation handling.
 
 ## Protocol Buffer Definitions
 
@@ -84,16 +85,16 @@ for {
 }
 ```
 
-## Server Conceptual Implementation
+## Server Implementation
 
-While the server-side gRPC transport is still in development, here's a conceptual implementation outline:
+The gRPC server is fully functional and can be set up easily:
 
 ```go
 // Create a new server
 srv := server.NewServer("grpc-example-server")
 
 // Configure the server with gRPC transport
-srv.AsGRPC("localhost:50051")
+srv.AsGRPC(":50051")
 
 // Register a simple echo tool
 srv.Tool("echo", "Echo the message back", func(ctx *server.Context, args struct {
@@ -101,7 +102,7 @@ srv.Tool("echo", "Echo the message back", func(ctx *server.Context, args struct 
 }) (map[string]interface{}, error) {
     fmt.Printf("Server received: %s\n", args.Message)
     return map[string]interface{}{
-        "message": args.Message,
+        "echoed": args.Message,
     }, nil
 })
 
@@ -110,6 +111,13 @@ if err := srv.Run(); err != nil {
     log.Fatalf("Server error: %v", err)
 }
 ```
+
+### Key Features
+
+- **Full Protocol Support**: Complete MCP JSON-RPC protocol implementation over gRPC streams
+- **Request/Response Matching**: Proper handling of concurrent requests with JSON-RPC ID matching
+- **Bidirectional Streaming**: Real-time communication between client and server
+- **Auto-shutdown**: Graceful shutdown with configurable timeouts
 
 ## Advantages of gRPC Transport
 
@@ -131,13 +139,43 @@ if err := srv.Run(); err != nil {
 ## Running the Example
 
 ```bash
-# First, generate the Protocol Buffer code (if needed)
-protoc --go_out=. --go-grpc_out=. transport/grpc/proto/*.proto
+# Navigate to the gRPC example directory
+cd examples/grpc
 
-# Run the client example
-go run examples/grpc/grpc_client_example.go
+# Run the complete gRPC example (server + client + automatic shutdown)
+go run .
+
+# Output shows:
+# - Server starting on :50051
+# - Client connecting successfully  
+# - Tool call execution with proper results
+# - Tools list with schema information
+# - Automatic graceful shutdown
+```
+
+### Example Output
+
+```
+=== gRPC MCP Example ===
+This example demonstrates the fully implemented gRPC transport
+for the Model Context Protocol (MCP) in gomcp.
+
+Starting gRPC server on :50051...
+Creating gRPC client connecting to localhost:50051...
+Successfully connected to gRPC server!
+Calling echo tool...
+Tool result: map[content:[map[text:{"echoed": "Hello from gRPC client!"} type:text]] isError:false]
+Listing available tools...
+Available tools:
+  - echo: Echo back the provided message
+
+Demo completed successfully!
+Shutting down automatically in 2 seconds...
+Auto-shutdown triggered
+Stopping server...
+Server stopped successfully
 ```
 
 ## Complete Example
 
-See the full example in [examples/grpc](https://github.com/localrivet/gomcp/tree/main/examples/grpc) in the GOMCP repository.
+See the full working example in [examples/grpc](https://github.com/localrivet/gomcp/tree/main/examples/grpc) in the GOMCP repository.

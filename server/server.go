@@ -17,6 +17,7 @@ import (
 	"github.com/localrivet/gomcp/events"
 	"github.com/localrivet/gomcp/mcp"
 	"github.com/localrivet/gomcp/transport"
+	"github.com/localrivet/gomcp/transport/grpc"
 	"github.com/localrivet/gomcp/transport/http"
 	"github.com/localrivet/gomcp/transport/mqtt"
 	"github.com/localrivet/gomcp/transport/nats"
@@ -247,6 +248,26 @@ type Server interface {
 	//  server.AsHTTP("localhost:8080")
 	//  server.AsHTTP("localhost:8080", http.WithPathPrefix("/api/v1"), http.WithMCPEndpoint("/custom-mcp"))
 	AsHTTP(address string, options ...http.Option) Server
+
+	// AsGRPC configures the server to use gRPC for communication.
+	//
+	// gRPC provides high-performance, bidirectional streaming communication
+	// with strong typing through Protocol Buffers. It supports TLS encryption,
+	// configurable message sizes, and keepalive parameters for production deployments.
+	//
+	// The address parameter specifies the host and port to listen on.
+	// Additional options can be provided to customize the gRPC transport behavior.
+	//
+	// Example:
+	//  // Basic configuration
+	//  server.AsGRPC(":50051")
+	//
+	//  // With TLS and custom options
+	//  server.AsGRPC(":50051",
+	//      grpc.WithTLS("cert.pem", "key.pem", "ca.pem"),
+	//      grpc.WithMaxMessageSize(8*1024*1024),
+	//      grpc.WithConnectionTimeout(20*time.Second))
+	AsGRPC(address string, options ...grpc.Option) Server
 
 	// AsWebsocket configures the server to use WebSocket for communication.
 	//

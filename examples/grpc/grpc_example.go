@@ -3,12 +3,14 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/localrivet/gomcp/client"
+	"github.com/localrivet/gomcp/server"
 )
 
 // NOTE: This is a conceptual example only.
@@ -22,63 +24,111 @@ func main() {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
 	// Define the gRPC host and port
-	address := "localhost:50051"
+	address := ":50051"
 
-	fmt.Println("=== Conceptual gRPC Example ===")
-	fmt.Println("Note: This is a demonstration of how a gRPC transport would be")
-	fmt.Println("used if fully implemented in the gomcp project.")
-	fmt.Println()
-	fmt.Println("Server would be configured as:")
-	fmt.Println("  srv := server.NewServer(\"grpc-example-server\")")
-	fmt.Println("  srv.AsGRPC(\"" + address + "\")")
+	fmt.Println("=== gRPC MCP Example ===")
+	fmt.Println("This example demonstrates the fully implemented gRPC transport")
+	fmt.Println("for the Model Context Protocol (MCP) in gomcp.")
 	fmt.Println()
 
-	// Server is just a concept in this example
-	// (We would start a real server here)
-	fmt.Println("Starting conceptual gRPC client...")
+	// Start the server
+	srv := server.NewServer("grpc-example-server")
 
-	// Show client code example
-	runClientExample(address)
+	// Add a simple echo tool
+	srv.Tool("echo", "Echo back the provided message", func(ctx *server.Context, args struct {
+		Message string `json:"message"`
+	}) (map[string]interface{}, error) {
+		return map[string]interface{}{
+			"echoed": args.Message,
+		}, nil
+	})
 
-	// Wait for termination signal or timeout
-	fmt.Println("Press Ctrl+C to exit or wait for 10 seconds...")
+	// Configure the server with gRPC transport
+	srv.AsGRPC(address,
+		server.WithGRPCMaxMessageSize(8*1024*1024), // 8MB
+		server.WithGRPCKeepAlive(10*time.Second, 3*time.Second),
+	)
+
+	fmt.Printf("Starting gRPC server on %s...\n", address)
+
+	// Start server in a goroutine
+	go func() {
+		if err := srv.Run(); err != nil {
+			log.Printf("Server error: %v", err)
+		}
+	}()
+
+	// Give the server a moment to start
+	time.Sleep(2 * time.Second)
+
+	// Run client example
+	runClientExample("localhost" + address)
+
+	// Auto-shutdown after demo or wait for manual signal
+	fmt.Println("\nDemo completed successfully!")
+	fmt.Println("Shutting down automatically in 2 seconds... (or press Ctrl+C to exit immediately)")
+
+	// Wait for either auto-shutdown timeout or manual signal
 	select {
+	case <-time.After(2 * time.Second):
+		fmt.Println("Auto-shutdown triggered")
 	case <-signals:
-		fmt.Println("\nShutdown signal received, exiting...")
-	case <-time.After(10 * time.Second):
-		fmt.Println("Example timeout reached, exiting...")
+		fmt.Println("Manual shutdown signal received")
+	}
+
+	fmt.Println("Stopping server...")
+
+	// Shutdown the server
+	if err := srv.Shutdown(); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	} else {
+		fmt.Println("Server stopped successfully")
 	}
 }
 
 func runClientExample(address string) {
-	// This is a conceptual example of how the gRPC client would be created
-	fmt.Println("Client would be created as:")
-	fmt.Println("  client.NewClient(\"grpc-example-client\",")
-	fmt.Println("    client.WithGRPC(\"" + address + "\",")
-	fmt.Println("      client.WithGRPCTimeout(5*time.Second),")
-	fmt.Println("    ),")
-	fmt.Println("    client.WithConnectionTimeout(5*time.Second),")
-	fmt.Println("    client.WithRequestTimeout(30*time.Second),")
-	fmt.Println("  )")
-	fmt.Println()
+	fmt.Printf("Creating gRPC client connecting to %s...\n", address)
 
-	// Demonstrate tool call
-	fmt.Println("Tool call would be executed as:")
-	fmt.Println("  client.CallTool(\"echo\", map[string]interface{}{")
-	fmt.Println("    \"message\": \"Hello from gRPC client!\",")
-	fmt.Println("  })")
-	fmt.Println()
-
-	// Try to create an actual client to validate the WithGRPC option exists
-	// This will fail since there's no gRPC server running, but it validates
-	// that the client API accepts these options
-	_, err := client.NewClient("grpc-example-client",
-		client.WithGRPC(address),
+	// Create the gRPC client
+	c, err := client.NewClient("grpc-example-client",
+		client.WithGRPC(address,
+			client.WithGRPCTimeout(5*time.Second),
+			client.WithGRPCMaxMessageSize(8*1024*1024),
+		),
 		client.WithConnectionTimeout(5*time.Second),
-		client.WithRequestTimeout(30*time.Second),
+		client.WithRequestTimeout(10*time.Second),
 	)
 	if err != nil {
-		fmt.Printf("Note: Creating a real client failed as expected: %v\n", err)
-		fmt.Println("A real implementation would require a running gRPC server.")
+		log.Printf("Failed to create client: %v", err)
+		return
+	}
+
+	defer c.Close()
+
+	fmt.Println("Successfully connected to gRPC server!")
+
+	// Call the echo tool
+	fmt.Println("Calling echo tool...")
+	result, err := c.CallTool("echo", map[string]interface{}{
+		"message": "Hello from gRPC client!",
+	})
+	if err != nil {
+		log.Printf("Tool call failed: %v", err)
+		return
+	}
+
+	fmt.Printf("Tool result: %v\n", result)
+
+	// List available tools
+	fmt.Println("Listing available tools...")
+	tools, err := c.ListTools()
+	if err != nil {
+		log.Printf("Failed to list tools: %v", err)
+		return
+	}
+
+	fmt.Printf("Available tools:\n")
+	for _, tool := range tools {
+		fmt.Printf("  - %s: %s\n", tool.Name, tool.Description)
 	}
 }

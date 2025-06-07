@@ -27,7 +27,7 @@ GOMCP is a Go implementation of the Model Context Protocol (MCP), designed to en
   - MQTT - Publish/subscribe messaging for IoT and lightweight applications
   - NATS - Cloud-native, high-performance messaging
   - Standard I/O - Communication via stdin/stdout for CLI integration
-  - gRPC - (Client-side support, with server integration in development)
+  - gRPC - High-performance RPC with Protocol Buffers and streaming support
 - Automatic protocol version negotiation
 - Comprehensive type safety
 - Support for all MCP operations: tools, resources, prompts, and sampling

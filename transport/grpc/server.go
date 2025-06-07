@@ -67,10 +67,11 @@ func (t *Transport) startGRPCServer() error {
 // This RPC is called by clients to establish a session with the server.
 // It returns session information and server version details.
 func (s *mcpServer) Initialize(ctx context.Context, req *pb.InitializeRequest) (*pb.InitializeResponse, error) {
-	// TODO: Implement initialization logic
+	// For MCP, initialization is handled via JSON-RPC, not gRPC native calls
+	// Return basic success response
 	resp := &pb.InitializeResponse{
-		SessionId:     "session-1", // Generate real session ID
-		ServerVersion: "1.0.0",     // Get from server
+		SessionId:     "grpc-session-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+		ServerVersion: "1.0.0",
 		Success:       true,
 	}
 	return resp, nil
@@ -78,28 +79,35 @@ func (s *mcpServer) Initialize(ctx context.Context, req *pb.InitializeRequest) (
 
 // StreamMessages implements bidirectional streaming for message exchange.
 //
-// This method establishes a bidirectional stream between the client and server,
-// allowing them to exchange messages in real-time. It handles both incoming
-// messages from the client and outgoing messages from the server.
+// This method acts as a message pipe, passing JSON-RPC messages between
+// the client and the MCP server's message handler, just like other transports.
 func (s *mcpServer) StreamMessages(stream pb.MCP_StreamMessagesServer) error {
 	// Create done channel for this stream
 	done := make(chan struct{})
 	defer close(done)
 
-	// Start a goroutine to send messages to the client
+	// Start a goroutine to send outgoing messages to the client
 	go func() {
 		defer func() {
-			done <- struct{}{}
+			// Recover from any panic, particularly send on closed channel
+			if r := recover(); r != nil {
+				s.transport.GetLogger().Warn("Sender goroutine recovered from panic", "error", r)
+			}
 		}()
 
 		for {
 			select {
 			case <-s.transport.ctx.Done():
 				return
-			case <-done:
-				return
-			case message := <-s.transport.sendCh:
-				// Convert the message to gRPC format
+			case message, ok := <-s.transport.sendCh:
+				if !ok {
+					// Channel closed, exit gracefully
+					return
+				}
+
+				s.transport.GetLogger().Info("Sending message to client", "content", string(message))
+
+				// Convert the JSON-RPC message to gRPC format
 				protoMsg := &pb.MCPMessage{
 					Id: "msg-" + fmt.Sprintf("%d", time.Now().UnixNano()),
 					Content: &pb.MCPMessage_TextContent{
@@ -110,29 +118,29 @@ func (s *mcpServer) StreamMessages(stream pb.MCP_StreamMessagesServer) error {
 
 				// Send the message to the client
 				if err := stream.Send(protoMsg); err != nil {
-					select {
-					case s.transport.errCh <- fmt.Errorf("failed to send message: %w", err):
-					default:
-						// Error channel full, log and continue
-					}
+					// Log error but don't crash
+					s.transport.GetLogger().Warn("Failed to send message to client", "error", err)
 					return
 				}
+
+				s.transport.GetLogger().Info("Successfully sent message to client")
 			}
 		}
 	}()
 
-	// Receive messages from the client
+	// Receive messages from the client and put them in recvCh
+	// The server will process them via transport.Receive() and send responses via transport.Send()
 	for {
 		protoMsg, err := stream.Recv()
 		if err != nil {
-			// Check if the stream was closed by the client
 			if err == io.EOF {
+				// Stream closed by client - normal termination
 				return nil
 			}
 			return fmt.Errorf("failed to receive message: %w", err)
 		}
 
-		// Extract the message content
+		// Extract the JSON-RPC message content
 		var message []byte
 		switch content := protoMsg.Content.(type) {
 		case *pb.MCPMessage_TextContent:
@@ -140,58 +148,49 @@ func (s *mcpServer) StreamMessages(stream pb.MCP_StreamMessagesServer) error {
 		case *pb.MCPMessage_BinaryContent:
 			message = content.BinaryContent
 		default:
-			// Handle other message types (function calls, etc.)
+			// Skip unknown content types
+			s.transport.GetLogger().Warn("Unknown message content type", "type", fmt.Sprintf("%T", content))
 			continue
 		}
 
-		// Process the message using the transport's handler
-		response, err := s.transport.HandleMessage(message)
-		if err != nil {
-			select {
-			case s.transport.errCh <- err:
-			default:
-				// Error channel full, log and continue
-			}
-			continue
-		}
+		s.transport.GetLogger().Info("Received message from client", "content", string(message))
 
-		// If there's a response, put it in the send channel
-		if response != nil {
+		// Process the message directly using the transport's handler (like stdio transport does)
+		if response, err := s.transport.HandleMessage(message); err == nil && response != nil {
+			s.transport.GetLogger().Info("Generated response", "content", string(response))
+
+			// Send the response back via sendCh
 			select {
 			case s.transport.sendCh <- response:
+				// Response queued for sending
 			case <-s.transport.ctx.Done():
 				return fmt.Errorf("send canceled: %w", s.transport.ctx.Err())
+			default:
+				// Channel is full, log warning
+				s.transport.GetLogger().Warn("Send channel full, dropping response")
 			}
-		} else {
-			// If no response, just echo the message back
-			select {
-			case s.transport.recvCh <- message:
-			case <-s.transport.ctx.Done():
-				return fmt.Errorf("receive canceled: %w", s.transport.ctx.Err())
-			}
+		} else if err != nil {
+			s.transport.GetLogger().Warn("Message handler error", "error", err)
 		}
 	}
 }
 
 // StreamEvents implements server-to-client event streaming.
 func (s *mcpServer) StreamEvents(req *pb.EventStreamRequest, stream pb.MCP_StreamEventsServer) error {
-	// TODO: Implement event streaming
-	return fmt.Errorf("not implemented")
+	// TODO: Implement event streaming if needed for MCP
+	return fmt.Errorf("event streaming not implemented")
 }
 
 // ExecuteFunction executes a function and returns the result.
 func (s *mcpServer) ExecuteFunction(ctx context.Context, req *pb.FunctionRequest) (*pb.FunctionResponse, error) {
-	// TODO: Implement function execution
-	return &pb.FunctionResponse{
-		FunctionId: req.FunctionId,
-		RequestId:  req.RequestId,
-		IsFinal:    true,
-	}, nil
+	// MCP uses JSON-RPC for function calls, not gRPC native calls
+	// Return not implemented to encourage using the streaming interface
+	return nil, fmt.Errorf("use StreamMessages for MCP communication")
 }
 
 // EndSession terminates an active MCP session.
 func (s *mcpServer) EndSession(ctx context.Context, req *pb.EndSessionRequest) (*pb.EndSessionResponse, error) {
-	// TODO: Implement session termination
+	// MCP session management is handled via JSON-RPC
 	return &pb.EndSessionResponse{
 		Success: true,
 	}, nil

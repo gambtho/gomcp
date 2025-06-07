@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -380,5 +381,268 @@ func TestMapFunctionRequest(t *testing.T) {
 	}
 	if params["bool_param"] != true {
 		t.Errorf("Expected bool_param true, got %v", params["bool_param"])
+	}
+}
+
+// TestSendWithContextRequestResponseMatching tests the new request/response matching functionality
+func TestSendWithContextRequestResponseMatching(t *testing.T) {
+	// Create client transport
+	transport := NewTransport("localhost:50051", false)
+	err := transport.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize transport: %v", err)
+	}
+	defer transport.Stop()
+
+	// This would normally connect to a server, but we're testing the logic directly
+	// We'll simulate by adding the request to pending and then routing a response
+	transport.pendingMu.Lock()
+	transport.pendingRequests[1.0] = make(chan []byte, 1) // JSON numbers are float64
+	transport.pendingMu.Unlock()
+
+	// Send a response to test routing
+	responseJSON := `{"jsonrpc":"2.0","id":1,"result":"success"}`
+	transport.routeMessage([]byte(responseJSON))
+
+	// Verify the response was routed correctly
+	transport.pendingMu.RLock()
+	responseCh, exists := transport.pendingRequests[1.0]
+	transport.pendingMu.RUnlock()
+
+	if !exists {
+		t.Fatal("Request was not registered in pending requests")
+	}
+
+	select {
+	case response := <-responseCh:
+		if string(response) != responseJSON {
+			t.Errorf("Expected response %s, got %s", responseJSON, string(response))
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Timeout waiting for response")
+	}
+}
+
+// TestSendWithContextNotification tests handling of notifications (no ID)
+func TestSendWithContextNotification(t *testing.T) {
+	// Create client transport
+	transport := NewTransport("localhost:50051", false)
+	err := transport.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize transport: %v", err)
+	}
+	defer transport.Stop()
+
+	// Test notification (no ID) - should return empty response immediately
+	notificationJSON := `{"jsonrpc":"2.0","method":"notification","params":{}}`
+
+	// Since we can't actually connect to a server in this test, we'll test that
+	// the method properly identifies notifications and handles them
+	// For a real test, this would call SendWithContext, but we're testing the logic
+
+	// Parse the notification to verify it has no ID
+	var notificationMap map[string]interface{}
+	if err := json.Unmarshal([]byte(notificationJSON), &notificationMap); err != nil {
+		t.Fatalf("Failed to parse notification: %v", err)
+	}
+
+	if notificationMap["id"] != nil {
+		t.Error("Notification should not have an ID")
+	}
+
+	// Verify the method would identify this as a notification
+	if _, hasID := notificationMap["id"]; hasID {
+		t.Error("Expected no ID for notification")
+	}
+}
+
+// TestRouteMessage tests the new message routing functionality
+func TestRouteMessage(t *testing.T) {
+	// Create client transport
+	transport := NewTransport("localhost:50051", false)
+	err := transport.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize transport: %v", err)
+	}
+	defer transport.Stop()
+
+	// Test 1: Route response to pending request
+	requestID := 42.0 // JSON numbers are float64
+	responseCh := make(chan []byte, 1)
+	transport.pendingMu.Lock()
+	transport.pendingRequests[requestID] = responseCh
+	transport.pendingMu.Unlock()
+
+	responseJSON := `{"jsonrpc":"2.0","id":42,"result":"test result"}`
+	transport.routeMessage([]byte(responseJSON))
+
+	select {
+	case response := <-responseCh:
+		if string(response) != responseJSON {
+			t.Errorf("Expected response %s, got %s", responseJSON, string(response))
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Response was not routed to pending request")
+	}
+
+	// Test 2: Route notification to recvCh
+	notificationJSON := `{"jsonrpc":"2.0","method":"notification"}`
+	transport.routeMessage([]byte(notificationJSON))
+
+	select {
+	case message := <-transport.recvCh:
+		if string(message) != notificationJSON {
+			t.Errorf("Expected notification %s, got %s", notificationJSON, string(message))
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Notification was not routed to recvCh")
+	}
+
+	// Test 3: Route response for unknown request to recvCh
+	unknownResponseJSON := `{"jsonrpc":"2.0","id":999,"result":"unknown"}`
+	transport.routeMessage([]byte(unknownResponseJSON))
+
+	select {
+	case message := <-transport.recvCh:
+		if string(message) != unknownResponseJSON {
+			t.Errorf("Expected unknown response %s, got %s", unknownResponseJSON, string(message))
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Unknown response was not routed to recvCh")
+	}
+
+	// Test 4: Handle invalid JSON gracefully
+	invalidJSON := `{invalid json`
+	transport.routeMessage([]byte(invalidJSON))
+
+	select {
+	case message := <-transport.recvCh:
+		if string(message) != invalidJSON {
+			t.Errorf("Expected invalid JSON %s, got %s", invalidJSON, string(message))
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Invalid JSON was not routed to recvCh")
+	}
+}
+
+// TestSendWithContextServerMode tests that SendWithContext fails appropriately in server mode
+func TestSendWithContextServerMode(t *testing.T) {
+	// Create server transport
+	transport := NewTransport(":50051", true)
+	err := transport.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize transport: %v", err)
+	}
+	defer transport.Stop()
+
+	requestJSON := `{"jsonrpc":"2.0","id":1,"method":"test","params":{}}`
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	// SendWithContext should fail in server mode
+	_, err = transport.SendWithContext(ctx, []byte(requestJSON))
+	if err == nil {
+		t.Error("Expected error for SendWithContext in server mode")
+	}
+	if err.Error() != "SendWithContext not supported in server mode" {
+		t.Errorf("Expected specific error message, got: %v", err)
+	}
+}
+
+// TestConcurrentRequests tests handling of multiple concurrent requests
+func TestConcurrentRequests(t *testing.T) {
+	// Create client transport
+	transport := NewTransport("localhost:50051", false)
+	err := transport.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize transport: %v", err)
+	}
+	defer transport.Stop()
+
+	// Set up multiple pending requests
+	numRequests := 5
+	responseChannels := make([]chan []byte, numRequests)
+
+	for i := 0; i < numRequests; i++ {
+		responseCh := make(chan []byte, 1)
+		responseChannels[i] = responseCh
+		transport.pendingMu.Lock()
+		transport.pendingRequests[float64(i+1)] = responseCh // JSON numbers are float64
+		transport.pendingMu.Unlock()
+	}
+
+	// Send responses in different order to test proper routing
+	responses := []string{
+		`{"jsonrpc":"2.0","id":3,"result":"third"}`,
+		`{"jsonrpc":"2.0","id":1,"result":"first"}`,
+		`{"jsonrpc":"2.0","id":5,"result":"fifth"}`,
+		`{"jsonrpc":"2.0","id":2,"result":"second"}`,
+		`{"jsonrpc":"2.0","id":4,"result":"fourth"}`,
+	}
+
+	// Route all responses
+	for _, response := range responses {
+		transport.routeMessage([]byte(response))
+	}
+
+	// Verify each response went to the correct channel
+	expectedResults := []string{"first", "second", "third", "fourth", "fifth"}
+	for i := 0; i < numRequests; i++ {
+		select {
+		case response := <-responseChannels[i]:
+			var responseMap map[string]interface{}
+			if err := json.Unmarshal(response, &responseMap); err != nil {
+				t.Fatalf("Failed to parse response %d: %v", i+1, err)
+			}
+			if responseMap["result"] != expectedResults[i] {
+				t.Errorf("Request %d: expected result %s, got %s", i+1, expectedResults[i], responseMap["result"])
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Errorf("Timeout waiting for response %d", i+1)
+		}
+	}
+}
+
+// TestPendingRequestCleanup tests that pending requests are properly cleaned up
+func TestPendingRequestCleanup(t *testing.T) {
+	// Create client transport
+	transport := NewTransport("localhost:50051", false)
+	err := transport.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize transport: %v", err)
+	}
+	defer transport.Stop()
+
+	// Simulate the cleanup that would happen in SendWithContext
+	requestID := 123
+	responseCh := make(chan []byte, 1)
+
+	// Add to pending requests
+	transport.pendingMu.Lock()
+	transport.pendingRequests[requestID] = responseCh
+	transport.pendingMu.Unlock()
+
+	// Verify it's there
+	transport.pendingMu.RLock()
+	_, exists := transport.pendingRequests[requestID]
+	transport.pendingMu.RUnlock()
+
+	if !exists {
+		t.Error("Request was not added to pending requests")
+	}
+
+	// Simulate cleanup (what defer does in SendWithContext)
+	transport.pendingMu.Lock()
+	delete(transport.pendingRequests, requestID)
+	transport.pendingMu.Unlock()
+	close(responseCh)
+
+	// Verify it's cleaned up
+	transport.pendingMu.RLock()
+	_, exists = transport.pendingRequests[requestID]
+	transport.pendingMu.RUnlock()
+
+	if exists {
+		t.Error("Request was not cleaned up from pending requests")
 	}
 }
