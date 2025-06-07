@@ -11,8 +11,11 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -36,6 +39,15 @@ type MCPServer struct {
 	cmd    *exec.Cmd
 }
 
+// ProcessInfo tracks spawned processes for comprehensive cleanup
+type ProcessInfo struct {
+	PID        int
+	ServerName string
+	Command    string
+	StartTime  time.Time
+	Children   []int // Child process PIDs
+}
+
 // ServerRegistry manages a collection of MCP servers loaded from configuration
 type ServerRegistry struct {
 	servers map[string]*MCPServer
@@ -44,6 +56,11 @@ type ServerRegistry struct {
 	closed  bool // Track if registry has been closed
 	ctx     context.Context
 	cancel  context.CancelFunc
+
+	// Process tracking for comprehensive cleanup (opt-in)
+	spawnedProcesses      map[int]*ProcessInfo
+	processMutex          sync.Mutex
+	enableProcessTracking bool // Only enable when needed for production use
 }
 
 // ServerRegistryOption configures a ServerRegistry
@@ -58,17 +75,27 @@ func WithRegistryLogger(logger *slog.Logger) ServerRegistryOption {
 	}
 }
 
+// WithProcessTracking enables comprehensive process tracking and cleanup.
+// This is recommended for production environments to prevent process leaks.
+// Process tracking adds overhead and should be disabled for tests with mock commands.
+func WithProcessTracking() ServerRegistryOption {
+	return func(r *ServerRegistry) {
+		r.enableProcessTracking = true
+	}
+}
+
 // NewServerRegistry creates a new empty server registry.
 // By default, no logging is enabled to avoid interfering with stdio-based MCP communication.
 func NewServerRegistry(opts ...ServerRegistryOption) *ServerRegistry {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	r := &ServerRegistry{
-		servers: make(map[string]*MCPServer),
-		logger:  nil, // Default to no logging to avoid stdio interference
-		closed:  false,
-		ctx:     ctx,
-		cancel:  cancel,
+		servers:          make(map[string]*MCPServer),
+		logger:           nil, // Default to no logging to avoid stdio interference
+		closed:           false,
+		ctx:              ctx,
+		cancel:           cancel,
+		spawnedProcesses: make(map[int]*ProcessInfo),
 	}
 
 	for _, opt := range opts {
@@ -171,6 +198,11 @@ func (r *ServerRegistry) StartServer(name string, def ServerDefinition) error {
 	// Start the process
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// Track the spawned process for comprehensive cleanup (if enabled)
+	if r.enableProcessTracking {
+		r.trackProcess(cmd.Process.Pid, name, def.Command)
 	}
 
 	// Create a transport for the client
@@ -285,6 +317,11 @@ func (r *ServerRegistry) StopServer(name string) error {
 		return fmt.Errorf("failed to terminate server %s: %w", name, err)
 	}
 
+	// Remove from process tracking (if enabled)
+	if r.enableProcessTracking && server.cmd != nil && server.cmd.Process != nil {
+		r.untrackProcess(server.cmd.Process.Pid)
+	}
+
 	return nil
 }
 
@@ -384,11 +421,23 @@ func (r *ServerRegistry) Close() error {
 	r.closed = true
 	r.mu.Unlock()
 
-	// Stop all servers first, then cancel the context
+	// Stop all servers first (this handles graceful client shutdown)
 	if err := r.StopAll(); err != nil {
-		// Still cancel the context even if StopAll fails
-		r.cancel()
-		return fmt.Errorf("failed to stop all servers during close: %w", err)
+		if r.logger != nil {
+			r.logger.Warn("Failed to stop all servers gracefully", "error", err)
+		}
+	}
+
+	// Perform comprehensive cleanup of all tracked processes and their trees (if enabled)
+	if r.enableProcessTracking {
+		if err := r.cleanupAllTrackedProcesses(); err != nil {
+			if r.logger != nil {
+				r.logger.Error("Failed to cleanup tracked processes", "error", err)
+			}
+			// Still cancel the context even if cleanup fails
+			r.cancel()
+			return fmt.Errorf("failed to cleanup tracked processes during close: %w", err)
+		}
 	}
 
 	// Cancel the context after successful shutdown
@@ -720,4 +769,222 @@ func NewLogger(opts ...LoggerOption) *slog.Logger {
 	return slog.New(slog.NewTextHandler(config.output, &slog.HandlerOptions{
 		Level: config.level,
 	}))
+}
+
+// trackProcess adds a process to the tracking list for cleanup
+func (r *ServerRegistry) trackProcess(pid int, serverName, command string) {
+	r.processMutex.Lock()
+	defer r.processMutex.Unlock()
+
+	processInfo := &ProcessInfo{
+		PID:        pid,
+		ServerName: serverName,
+		Command:    command,
+		StartTime:  time.Now(),
+		Children:   []int{},
+	}
+
+	r.spawnedProcesses[pid] = processInfo
+
+	// Discover child processes after a brief delay to allow them to spawn
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		r.discoverChildProcesses(pid)
+	}()
+
+	if r.logger != nil {
+		r.logger.Debug("Tracking process", "pid", pid, "server", serverName, "command", command)
+	}
+}
+
+// discoverChildProcesses finds all child processes of a given parent PID
+func (r *ServerRegistry) discoverChildProcesses(parentPID int) {
+	// Check if parent process still exists before discovering children
+	if !r.processExists(parentPID) {
+		if r.logger != nil {
+			r.logger.Debug("Parent process no longer exists, skipping child discovery", "pid", parentPID)
+		}
+		return
+	}
+
+	children := r.findChildProcesses(parentPID)
+
+	r.processMutex.Lock()
+	defer r.processMutex.Unlock()
+
+	if processInfo, exists := r.spawnedProcesses[parentPID]; exists {
+		processInfo.Children = children
+		if r.logger != nil && len(children) > 0 {
+			r.logger.Debug("Discovered child processes", "parent", parentPID, "children", children)
+		}
+	}
+}
+
+// processExists checks if a process with the given PID exists
+func (r *ServerRegistry) processExists(pid int) bool {
+	if runtime.GOOS == "windows" {
+		// Windows implementation
+		cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid))
+		output, err := cmd.Output()
+		if err != nil {
+			return false
+		}
+		return strings.Contains(string(output), strconv.Itoa(pid))
+	}
+
+	// Unix-like systems - try to send signal 0 to check if process exists
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+
+	err = process.Signal(syscall.Signal(0))
+	return err == nil
+}
+
+// findChildProcesses discovers child processes using system process information
+func (r *ServerRegistry) findChildProcesses(parentPID int) []int {
+	var children []int
+
+	if runtime.GOOS == "windows" {
+		// Windows implementation would go here
+		return children
+	}
+
+	// Unix-like systems (macOS, Linux)
+	cmd := exec.Command("ps", "-eo", "pid,ppid")
+	output, err := cmd.Output()
+	if err != nil {
+		if r.logger != nil {
+			r.logger.Debug("Failed to get process list", "error", err)
+		}
+		return children
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines[1:] { // Skip header
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			pid, err1 := strconv.Atoi(fields[0])
+			ppid, err2 := strconv.Atoi(fields[1])
+
+			if err1 == nil && err2 == nil && ppid == parentPID {
+				children = append(children, pid)
+				// Recursively find grandchildren
+				grandchildren := r.findChildProcesses(pid)
+				children = append(children, grandchildren...)
+			}
+		}
+	}
+
+	return children
+}
+
+// terminateProcessTree terminates a process and all its children
+func (r *ServerRegistry) terminateProcessTree(pid int) error {
+	// Find all children first
+	children := r.findChildProcesses(pid)
+
+	// Terminate children first (depth-first)
+	for _, childPID := range children {
+		if err := r.terminateProcessTree(childPID); err != nil {
+			if r.logger != nil {
+				r.logger.Debug("Failed to terminate child process", "pid", childPID, "error", err)
+			}
+		}
+	}
+
+	// Now terminate the parent process
+	return r.terminateSingleProcess(pid)
+}
+
+// terminateSingleProcess terminates a single process by PID
+func (r *ServerRegistry) terminateSingleProcess(pid int) error {
+	if runtime.GOOS == "windows" {
+		// Windows implementation
+		cmd := exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid))
+		return cmd.Run()
+	}
+
+	// Unix-like systems
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return nil // Process doesn't exist
+	}
+
+	// Try graceful termination first
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		// Process might already be dead
+		if strings.Contains(err.Error(), "process already finished") {
+			return nil
+		}
+	} else {
+		// Wait briefly for graceful shutdown
+		time.Sleep(1 * time.Second)
+
+		// Check if process still exists
+		if err := process.Signal(syscall.Signal(0)); err != nil {
+			return nil // Process died gracefully
+		}
+	}
+
+	// Force kill if still alive
+	if err := process.Signal(syscall.SIGKILL); err != nil {
+		if strings.Contains(err.Error(), "process already finished") {
+			return nil
+		}
+		return fmt.Errorf("failed to kill process %d: %w", pid, err)
+	}
+
+	return nil
+}
+
+// cleanupAllTrackedProcesses terminates all tracked processes and their trees
+func (r *ServerRegistry) cleanupAllTrackedProcesses() error {
+	r.processMutex.Lock()
+	defer r.processMutex.Unlock()
+
+	if len(r.spawnedProcesses) == 0 {
+		return nil
+	}
+
+	if r.logger != nil {
+		r.logger.Debug("Cleaning up tracked processes", "count", len(r.spawnedProcesses))
+	}
+
+	var errors []string
+
+	// Terminate all tracked process trees
+	for pid, processInfo := range r.spawnedProcesses {
+		if r.logger != nil {
+			r.logger.Debug("Terminating process tree", "pid", pid, "server", processInfo.ServerName)
+		}
+
+		if err := r.terminateProcessTree(pid); err != nil {
+			errors = append(errors, fmt.Sprintf("failed to terminate process tree %d (%s): %v",
+				pid, processInfo.ServerName, err))
+		}
+	}
+
+	// Clear the tracking map
+	r.spawnedProcesses = make(map[int]*ProcessInfo)
+
+	if len(errors) > 0 {
+		return fmt.Errorf("process cleanup errors: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
+}
+
+// untrackProcess removes a process from tracking
+func (r *ServerRegistry) untrackProcess(pid int) {
+	r.processMutex.Lock()
+	defer r.processMutex.Unlock()
+
+	if processInfo, exists := r.spawnedProcesses[pid]; exists {
+		if r.logger != nil {
+			r.logger.Debug("Untracking process", "pid", pid, "server", processInfo.ServerName)
+		}
+		delete(r.spawnedProcesses, pid)
+	}
 }
