@@ -128,4 +128,4 @@
 package gomcp
 
 // Version is the current version of the gomcp library
-const Version = "1.5.0"
+const Version = "1.6.0"

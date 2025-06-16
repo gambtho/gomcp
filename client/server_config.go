@@ -181,6 +181,12 @@ func (r *ServerRegistry) StartServer(name string, def ServerDefinition) error {
 	}
 	cmd.Env = env
 
+	// Create a new process group to enable clean killing of child processes
+	// This is the recommended approach for handling process trees
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
+
 	// Set up stdio pipes for communication
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -214,6 +220,7 @@ func (r *ServerRegistry) StartServer(name string, def ServerDefinition) error {
 	// Create client options - use the standard WithTransport function
 	clientOpts := []Option{
 		WithTransport(transport),
+		WithConnectionTimeout(5 * time.Second), // Short timeout for server registry to prevent test hangs
 	}
 
 	// Add logger if configured
@@ -336,20 +343,32 @@ func (r *ServerRegistry) terminateProcess(cmd *exec.Cmd, name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Step 1: First close stdin to signal the process to shut down gracefully
-	// This is often how MCP servers detect client disconnect
-	if stdinCloser, ok := cmd.Stdin.(io.Closer); ok && stdinCloser != nil {
-		if err := stdinCloser.Close(); err != nil && r.logger != nil {
-			r.logger.Debug("Failed to close stdin", "server", name, "error", err)
-		}
+	// Check if this process has stdin set up (indicates it's a proper MCP server)
+	hasStdin := cmd.Stdin != nil
+
+	// Step 1: Try graceful shutdown only if we have stdin (MCP servers)
+	gracefulTimeout := 3 * time.Second
+	if !hasStdin {
+		// For test processes without stdin, use a much shorter timeout
+		gracefulTimeout = 100 * time.Millisecond
 	}
 
-	// Wait up to 3 seconds for graceful shutdown after closing stdin
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
 	}()
 
+	if hasStdin {
+		// First close stdin to signal the process to shut down gracefully
+		// This is often how MCP servers detect client disconnect
+		if stdinCloser, ok := cmd.Stdin.(io.Closer); ok && stdinCloser != nil {
+			if err := stdinCloser.Close(); err != nil && r.logger != nil {
+				r.logger.Debug("Failed to close stdin", "server", name, "error", err)
+			}
+		}
+	}
+
+	// Wait for graceful shutdown
 	select {
 	case <-done:
 		// Process exited gracefully
@@ -357,22 +376,80 @@ func (r *ServerRegistry) terminateProcess(cmd *exec.Cmd, name string) error {
 			r.logger.Debug("Process exited gracefully after stdin close", "server", name)
 		}
 		return nil
-	case <-time.After(3 * time.Second):
+	case <-time.After(gracefulTimeout):
 		// Graceful shutdown timeout, proceed to force kill
 		if r.logger != nil {
-			r.logger.Debug("Graceful shutdown timeout, force killing", "server", name)
+			if hasStdin {
+				r.logger.Debug("Graceful shutdown timeout, force killing", "server", name)
+			} else {
+				r.logger.Debug("Test process - proceeding to force kill", "server", name)
+			}
 		}
 	case <-ctx.Done():
 		return fmt.Errorf("termination context cancelled for process %s", name)
 	}
 
-	// Step 2: Force kill with SIGKILL
-	if err := cmd.Process.Kill(); err != nil {
-		// Process might already be dead
-		if strings.Contains(err.Error(), "process already finished") {
-			return nil
+	// Step 2: Force kill - use process group if available (Unix-like systems only)
+	if runtime.GOOS != "windows" {
+		// Try to get the process group ID and kill the entire group
+		// But only if this process was created with its own process group
+		if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil {
+			// Check if this process is in its own process group (not the test runner's group)
+			// If pgid == pid, then this process is the process group leader (created with Setpgid: true)
+			if pgid == cmd.Process.Pid {
+				if r.logger != nil {
+					r.logger.Debug("Killing process group", "server", name, "pid", cmd.Process.Pid, "pgid", pgid)
+				}
+
+				// Kill the entire process group with SIGKILL
+				// Use -pgid to target the group, not just the process
+				if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
+					if r.logger != nil {
+						r.logger.Debug("Failed to kill process group, falling back to single process kill",
+							"server", name, "pgid", pgid, "error", err)
+					}
+					// Fall back to killing just the main process
+					if err := cmd.Process.Kill(); err != nil {
+						if strings.Contains(err.Error(), "process already finished") {
+							return nil
+						}
+						return fmt.Errorf("failed to kill process: %w", err)
+					}
+				}
+			} else {
+				// Process is not in its own group, just kill the main process
+				if r.logger != nil {
+					r.logger.Debug("Process not in own group, killing main process only",
+						"server", name, "pid", cmd.Process.Pid, "pgid", pgid)
+				}
+				if err := cmd.Process.Kill(); err != nil {
+					if strings.Contains(err.Error(), "process already finished") {
+						return nil
+					}
+					return fmt.Errorf("failed to kill process: %w", err)
+				}
+			}
+		} else {
+			// Couldn't get pgid, fall back to killing just the main process
+			if r.logger != nil {
+				r.logger.Debug("Failed to get process group, killing main process only",
+					"server", name, "error", err)
+			}
+			if err := cmd.Process.Kill(); err != nil {
+				if strings.Contains(err.Error(), "process already finished") {
+					return nil
+				}
+				return fmt.Errorf("failed to kill process: %w", err)
+			}
 		}
-		return fmt.Errorf("failed to kill process: %w", err)
+	} else {
+		// Windows: just kill the main process
+		if err := cmd.Process.Kill(); err != nil {
+			if strings.Contains(err.Error(), "process already finished") {
+				return nil
+			}
+			return fmt.Errorf("failed to kill process: %w", err)
+		}
 	}
 
 	// Step 3: Wait for process death with timeout
