@@ -1044,12 +1044,10 @@ func (s *serverImpl) sendNotification(method string, params interface{}) {
 // handleInitializedNotification processes the initialized notification from the client
 // and sends any pending notifications that were queued during the initialization phase.
 func (s *serverImpl) handleInitializedNotification() {
-	// Quick lock to set initialized and get what we need
-	s.mu.Lock()
+	// Set initialized and get what we need - no lock needed
 	s.initialized = true
 	pendingNotifications := s.capabilityCache.GetPendingNotifications()
 	s.capabilityCache.ResetChangeFlags()
-	s.mu.Unlock()
 
 	s.logger.Debug("client initialized, processing pending notifications",
 		"count", len(pendingNotifications))
