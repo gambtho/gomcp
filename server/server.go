@@ -1048,9 +1048,6 @@ func (s *serverImpl) handleInitializedNotification() {
 	s.mu.Lock()
 	s.initialized = true
 	pendingNotifications := s.capabilityCache.GetPendingNotifications()
-	hasTools := s.capabilityCache.hasTools
-	hasResources := s.capabilityCache.hasResources
-	hasPrompts := s.capabilityCache.hasPrompts
 	s.capabilityCache.ResetChangeFlags()
 	s.mu.Unlock()
 
@@ -1083,25 +1080,15 @@ func (s *serverImpl) handleInitializedNotification() {
 		}
 	}
 
-	// Send initial capability notifications and fetch roots without locks
-	go func() {
-		time.Sleep(50 * time.Millisecond) // Small delay for client readiness
-
-		// Fetch workspace roots if needed (for non-stdio transports)
-		if s.needsRootFetch {
+	// Fetch workspace roots if needed (for non-stdio transports)
+	// Only fetch roots, don't send initial capability notifications
+	// Capability notifications should only be sent when capabilities actually change
+	if s.needsRootFetch {
+		go func() {
+			time.Sleep(50 * time.Millisecond) // Small delay for client readiness
 			s.fetchWorkspaceRoots()
-		}
-
-		if hasTools {
-			s.sendCapabilityNotification("tools")
-		}
-		if hasResources {
-			s.sendCapabilityNotification("resources")
-		}
-		if hasPrompts {
-			s.sendCapabilityNotification("prompts")
-		}
-	}()
+		}()
+	}
 }
 
 // extractHTTPSessionData extracts environment variables from HTTP headers (MCP compliant)
