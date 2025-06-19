@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/localrivet/gomcp/events"
+	"github.com/localrivet/gomcp/mcp"
 )
 
 // Connect establishes a connection to the server.
@@ -82,22 +83,19 @@ func (c *clientImpl) initialize() error {
 	}
 
 	// Create the initialize request
-	initRequest := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      c.generateRequestID(),
-		"method":  "initialize",
-		"params": map[string]interface{}{
-			"protocolVersion": protocolVersion,
-			"capabilities":    c.capabilities,
-			"clientInfo": map[string]interface{}{
-				"name":    "GoMCP Client",
-				"version": "1.0.0",
-			},
+	requestID := c.generateRequestID()
+	params := map[string]interface{}{
+		"protocolVersion": protocolVersion,
+		"capabilities":    c.capabilities,
+		"clientInfo": map[string]interface{}{
+			"name":    "GoMCP Client",
+			"version": "1.0.0",
 		},
 	}
+	initRequest := mcp.NewRequest(requestID, "initialize", params)
 
 	// Convert the request to JSON
-	requestJSON, err := json.Marshal(initRequest)
+	requestJSON, err := initRequest.Marshal()
 	if err != nil {
 		return fmt.Errorf("failed to marshal initialize request: %w", err)
 	}
@@ -208,13 +206,11 @@ func (c *clientImpl) initialize() error {
 
 // sendInitializedNotification sends the initialized notification to the server.
 func (c *clientImpl) sendInitializedNotification() error {
-	notification := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "notifications/initialized",
-	}
+	// Create notification using structured type
+	notification := mcp.NewNotification("notifications/initialized", nil)
 
 	// Convert to JSON
-	notificationJSON, err := json.Marshal(notification)
+	notificationJSON, err := notification.Marshal()
 	if err != nil {
 		return fmt.Errorf("failed to marshal initialized notification: %w", err)
 	}
@@ -241,14 +237,11 @@ func (c *clientImpl) Close() error {
 
 	// Send a shutdown request if we're initialized
 	if c.initialized {
-		shutdownRequest := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"id":      c.generateRequestID(),
-			"method":  "shutdown",
-		}
+		requestID := c.generateRequestID()
+		shutdownRequest := mcp.NewRequest(requestID, "shutdown", nil)
 
 		// Convert to JSON
-		requestJSON, marshalErr := json.Marshal(shutdownRequest)
+		requestJSON, marshalErr := shutdownRequest.Marshal()
 		if marshalErr != nil {
 			c.logger.Error("failed to marshal shutdown request", "error", marshalErr)
 		} else {
@@ -327,15 +320,8 @@ func (c *clientImpl) registerNotificationHandler() {
 			default:
 				c.logger.Warn("received unsupported request method", "method", request.Method)
 				// Send method not found error
-				errorResponse := map[string]interface{}{
-					"jsonrpc": "2.0",
-					"id":      request.ID,
-					"error": map[string]interface{}{
-						"code":    -32601,
-						"message": "Method not found",
-					},
-				}
-				responseJSON, _ := json.Marshal(errorResponse)
+				errorResponse := mcp.NewErrorResponse(request.ID, -32601, "Method not found", nil)
+				responseJSON, _ := errorResponse.Marshal()
 				_, err := c.transport.Send(responseJSON)
 				if err != nil {
 					c.logger.Error("failed to send error response", "error", err)

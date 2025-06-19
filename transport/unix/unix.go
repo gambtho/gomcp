@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/localrivet/gomcp/mcp"
 	"github.com/localrivet/gomcp/transport"
 )
 
@@ -291,19 +292,11 @@ func createErrorResponse(request []byte, err error) []byte {
 		req.JSONRPC = "2.0"
 	}
 
-	// Create error response
-	resp := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      req.ID,
-		"error": map[string]interface{}{
-			"code":    -32000,
-			"message": "Server error",
-			"data":    err.Error(),
-		},
-	}
+	// Create error response using structured type
+	response := mcp.NewErrorResponse(req.ID, -32000, "Server error", err.Error())
 
 	// Marshal to JSON
-	respBytes, err := json.Marshal(resp)
+	respBytes, err := response.Marshal()
 	if err != nil {
 		return nil
 	}

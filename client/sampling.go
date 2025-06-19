@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/localrivet/gomcp/mcp"
 )
 
 // SamplingMessageContent represents the content of a sampling message.
@@ -210,22 +212,18 @@ func (c *clientImpl) RequestSampling(opts *SamplingOptions) (*SamplingResponse, 
 
 	// Build request
 	requestID := c.generateRequestID()
-	request := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      requestID,
-		"method":  "sampling/createMessage",
-		"params": map[string]interface{}{
-			"messages":         opts.Messages,
-			"modelPreferences": opts.ModelPreferences,
-		},
+	params := map[string]interface{}{
+		"messages":         opts.Messages,
+		"modelPreferences": opts.ModelPreferences,
 	}
+	request := mcp.NewRequest(requestID, "sampling/createMessage", params)
 
 	// Add optional parameters
 	if opts.SystemPrompt != "" {
-		request["params"].(map[string]interface{})["systemPrompt"] = opts.SystemPrompt
+		params["systemPrompt"] = opts.SystemPrompt
 	}
 	if opts.MaxTokens > 0 {
-		request["params"].(map[string]interface{})["maxTokens"] = opts.MaxTokens
+		params["maxTokens"] = opts.MaxTokens
 	}
 
 	// Add streaming parameters if enabled
@@ -238,11 +236,14 @@ func (c *clientImpl) RequestSampling(opts *SamplingOptions) (*SamplingResponse, 
 			streamParams["maxChunks"] = opts.MaxChunks
 		}
 		streamParams["stopOnComplete"] = opts.StopOnComplete
-		request["params"].(map[string]interface{})["streaming"] = streamParams
+		params["streaming"] = streamParams
 	}
 
+	// Update request with final params
+	request.Params = params
+
 	// Marshal request
-	requestJSON, err := json.Marshal(request)
+	requestJSON, err := request.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -399,19 +400,13 @@ func (c *clientImpl) handleSamplingCreateMessage(id int64, paramsJSON []byte) er
 
 // Helper functions for JSON-RPC responses
 func (c *clientImpl) sendJsonRpcErrorResponse(id int64, code int, message, data string) error {
-	response := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      id,
-		"error": map[string]interface{}{
-			"code":    code,
-			"message": message,
-		},
-	}
+	var dataInterface interface{}
 	if data != "" {
-		response["error"].(map[string]interface{})["data"] = data
+		dataInterface = data
 	}
 
-	responseJSON, err := json.Marshal(response)
+	response := mcp.NewErrorResponse(id, code, message, dataInterface)
+	responseJSON, err := response.Marshal()
 	if err != nil {
 		return err
 	}
@@ -420,13 +415,8 @@ func (c *clientImpl) sendJsonRpcErrorResponse(id int64, code int, message, data 
 }
 
 func (c *clientImpl) sendJsonRpcSuccessResponse(id int64, result interface{}) error {
-	response := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      id,
-		"result":  result,
-	}
-
-	responseJSON, err := json.Marshal(response)
+	response := mcp.NewSuccessResponse(id, result)
+	responseJSON, err := response.Marshal()
 	if err != nil {
 		return err
 	}

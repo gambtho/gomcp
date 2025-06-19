@@ -1063,22 +1063,15 @@ func (c *clientImpl) SendBatch(requests []BatchRequest, opts ...RequestOption) (
 
 	timeout := c.extractTimeout(opts...)
 
-	// Convert BatchRequest to JSON-RPC format
-	var jsonRPCRequests []map[string]interface{}
+	// Convert BatchRequest to JSON-RPC format using structured types
+	var jsonRPCRequests []*mcp.JSONRPCRequest
 	for _, req := range requests {
-		jsonReq := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"method":  req.Method,
-		}
-
-		if req.Params != nil {
-			jsonReq["params"] = req.Params
-		}
-
+		var id interface{}
 		if req.ID != nil {
-			jsonReq["id"] = req.ID
+			id = req.ID
 		}
 
+		jsonReq := mcp.NewRequest(id, req.Method, req.Params)
 		jsonRPCRequests = append(jsonRPCRequests, jsonReq)
 	}
 
@@ -1140,7 +1133,7 @@ func (c *clientImpl) BatchBuilder() *BatchRequestBuilder {
 }
 
 // sendBatchRequestWithTimeout sends a batch request with timeout support.
-func (c *clientImpl) sendBatchRequestWithTimeout(requests []map[string]interface{}, timeout time.Duration) (interface{}, error) {
+func (c *clientImpl) sendBatchRequestWithTimeout(requests []*mcp.JSONRPCRequest, timeout time.Duration) (interface{}, error) {
 	// Use the existing transport mechanism but send as a batch
 	ctx, cancel := context.WithTimeout(c.ctx, timeout)
 	defer cancel()

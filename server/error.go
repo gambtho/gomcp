@@ -1,6 +1,8 @@
 package server
 
-import "encoding/json"
+import (
+	"github.com/localrivet/gomcp/mcp"
+)
 
 // createErrorResponse creates a JSON-RPC 2.0 error response.
 // This function formats error information according to the JSON-RPC 2.0 specification,
@@ -15,28 +17,8 @@ import "encoding/json"
 // Returns:
 //   - Serialized JSON bytes containing the error response
 func createErrorResponse(id interface{}, code int, message string, data interface{}) []byte {
-	response := struct {
-		JSONRPC string      `json:"jsonrpc"`
-		ID      interface{} `json:"id"`
-		Error   struct {
-			Code    int         `json:"code"`
-			Message string      `json:"message"`
-			Data    interface{} `json:"data,omitempty"`
-		} `json:"error"`
-	}{
-		JSONRPC: "2.0",
-		ID:      id,
-		Error: struct {
-			Code    int         `json:"code"`
-			Message string      `json:"message"`
-			Data    interface{} `json:"data,omitempty"`
-		}{
-			Code:    code,
-			Message: message,
-			Data:    data,
-		},
-	}
-	responseBytes, _ := json.Marshal(response)
+	response := mcp.NewErrorResponse(id, code, message, data)
+	responseBytes, _ := response.Marshal() // We ignore the error since struct marshaling should always succeed
 	return responseBytes
 }
 

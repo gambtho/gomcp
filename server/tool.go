@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/localrivet/gomcp/events"
+	"github.com/localrivet/gomcp/mcp"
 	"github.com/localrivet/gomcp/util/schema"
 )
 
@@ -365,18 +366,16 @@ func (s *serverImpl) executeTool(ctx *Context, name string, args map[string]inte
 		return nil, fmt.Errorf("tool not found: %s", name)
 	}
 
-	// Build raw request data
-	rawRequest := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "tools/call",
-		"params": map[string]interface{}{
-			"name":      name,
-			"arguments": args,
-		},
+	// Build raw request using structured type
+	params := map[string]interface{}{
+		"name":      name,
+		"arguments": args,
 	}
+	var requestID interface{}
 	if ctx.Request != nil && ctx.Request.ID != nil {
-		rawRequest["id"] = ctx.Request.ID
+		requestID = ctx.Request.ID
 	}
+	rawRequest := mcp.NewRequest(requestID, "tools/call", params)
 
 	// Execute the tool handler with cancellation awareness
 	resultCh := make(chan struct {
@@ -427,29 +426,21 @@ func (s *serverImpl) executeTool(ctx *Context, name string, args map[string]inte
 		finalErr = res.err
 	}
 
-	// Build raw response data
-	var rawResponse map[string]interface{}
+	// Build raw response using structured types
+	var rawResponse interface{}
 	if finalErr != nil {
-		rawResponse = map[string]interface{}{
-			"jsonrpc": "2.0",
-			"id":      ctx.Request.ID,
-			"error": map[string]interface{}{
-				"code":    -32000,
-				"message": finalErr.Error(),
-			},
-		}
+		rawResponse = mcp.NewErrorResponse(ctx.Request.ID, -32000, finalErr.Error(), nil)
 	} else {
-		rawResponse = map[string]interface{}{
-			"jsonrpc": "2.0",
-			"id":      ctx.Request.ID,
-			"result":  finalResult,
-		}
+		rawResponse = mcp.NewSuccessResponse(ctx.Request.ID, finalResult)
 	}
 
 	// Publish tool execution event with actual request/response objects
 	go func() {
-		requestJSON, _ := json.Marshal(rawRequest)
-		responseJSON, _ := json.Marshal(rawResponse)
+		requestJSON, _ := rawRequest.Marshal()
+		var responseJSON []byte
+		if resp, ok := rawResponse.(*mcp.JSONRPCResponse); ok {
+			responseJSON, _ = resp.Marshal()
+		}
 		events.Publish[events.ToolExecutedEvent](s.events, events.TopicToolExecuted, events.ToolExecutedEvent{
 			Method:       "tools/call",
 			RequestJSON:  string(requestJSON),
@@ -622,14 +613,11 @@ func (s *serverImpl) ProcessToolCall(ctx *Context) (interface{}, error) {
 // SendToolsListChangedNotification sends a notification to inform clients that the tool list has changed.
 // This is called when tools are added, removed, or updated, allowing clients to refresh their available tools.
 func (s *serverImpl) SendToolsListChangedNotification() error {
-	// Create the notification message
-	notification := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "notifications/tools/list_changed",
-	}
+	// Create the notification using structured type
+	notification := mcp.NewNotification("notifications/tools/list_changed", nil)
 
 	// Marshal the notification to JSON
-	notificationBytes, err := json.Marshal(notification)
+	notificationBytes, err := notification.Marshal()
 	if err != nil {
 		return fmt.Errorf("failed to marshal notification: %w", err)
 	}

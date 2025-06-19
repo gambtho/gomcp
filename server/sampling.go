@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/localrivet/gomcp/mcp"
 )
 
 // SamplingMessageContent represents the content of a sampling message.
@@ -575,16 +577,11 @@ func (s *serverImpl) RequestSamplingWithSessionAndOptions(sessionID SessionID, p
 	// Create request ID
 	requestID := s.generateRequestID()
 
-	// Create the JSON-RPC request
-	request := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      requestID,
-		"method":  "sampling/createMessage",
-		"params":  json.RawMessage(paramsJSON),
-	}
+	// Create the JSON-RPC request using structured type
+	request := mcp.NewRequest(requestID, "sampling/createMessage", json.RawMessage(paramsJSON))
 
 	// Convert to JSON
-	requestJSON, err := json.Marshal(request)
+	requestJSON, err := request.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal sampling request: %w", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/localrivet/gomcp/events"
+	"github.com/localrivet/gomcp/mcp"
 	"github.com/localrivet/gomcp/util/schema"
 	"github.com/localrivet/wilduri"
 )
@@ -999,14 +1000,11 @@ func extractSchemaFromHandler(handler interface{}) (map[string]interface{}, erro
 // SendResourcesListChangedNotification sends a notification to inform clients that the resource list has changed.
 // This is called when resources are added, removed, or updated, allowing clients to refresh their available resources.
 func (s *serverImpl) SendResourcesListChangedNotification() error {
-	// Create the notification message
-	notification := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "notifications/resources/list_changed",
-	}
+	// Create the notification using structured type
+	notification := mcp.NewNotification("notifications/resources/list_changed", nil)
 
 	// Marshal the notification to JSON
-	notificationBytes, err := json.Marshal(notification)
+	notificationBytes, err := notification.Marshal()
 	if err != nil {
 		return fmt.Errorf("failed to marshal notification: %w", err)
 	}

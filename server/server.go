@@ -1025,17 +1025,11 @@ func (s *serverImpl) sendNotification(method string, params interface{}) {
 		return
 	}
 
-	notification := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  method,
-	}
-
-	if params != nil {
-		notification["params"] = params
-	}
+	// Create notification using structured type
+	notification := mcp.NewNotification(method, params)
 
 	// Convert to JSON
-	message, err := json.Marshal(notification)
+	message, err := notification.Marshal()
 	if err != nil {
 		s.logger.Error("failed to marshal notification", "error", err)
 		return
@@ -1488,14 +1482,11 @@ func (s *serverImpl) fetchWorkspaceRoots() {
 	}
 
 	// Create the roots/list request
-	request := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      requestID,
-		"method":  "roots/list",
-	}
+	// Create request using structured type
+	request := mcp.NewRequest(requestID, "roots/list", nil)
 
 	// Marshal the request to JSON
-	requestBytes, err := json.Marshal(request)
+	requestBytes, err := request.Marshal()
 	if err != nil {
 		s.logger.Error("failed to marshal roots/list request", "error", err)
 		if s.requestTracker != nil {

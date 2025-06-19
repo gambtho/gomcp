@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+
+	"github.com/localrivet/gomcp/mcp"
 )
 
 // CancelledNotificationParams contains parameters for a cancelled notification
@@ -139,22 +141,17 @@ func (s *serverImpl) HandleCancelledNotification(message []byte) error {
 
 // SendCancelledNotification sends a notifications/cancelled notification
 func (s *serverImpl) SendCancelledNotification(requestID string, reason string) error {
-	// Create the notification
-	notification := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "notifications/cancelled",
-		"params": map[string]interface{}{
-			"requestId": requestID,
-		},
+	// Create the notification parameters
+	params := CancelledNotificationParams{
+		RequestID: requestID,
+		Reason:    reason,
 	}
 
-	// Add reason if provided
-	if reason != "" {
-		notification["params"].(map[string]interface{})["reason"] = reason
-	}
+	// Create the notification using structured type
+	notification := mcp.NewNotification("notifications/cancelled", params)
 
 	// Convert to JSON
-	message, err := json.Marshal(notification)
+	message, err := notification.Marshal()
 	if err != nil {
 		return fmt.Errorf("failed to marshal cancelled notification: %w", err)
 	}

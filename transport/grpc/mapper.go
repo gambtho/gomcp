@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/localrivet/gomcp/mcp"
 	pb "github.com/localrivet/gomcp/transport/grpc/proto/gen"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -195,12 +196,18 @@ func MapToJSONRPCRequest(req *pb.FunctionRequest) (map[string]interface{}, error
 		params[k] = val
 	}
 
-	// Create a JSON-RPC request
-	jsonRPC := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  req.FunctionId,
-		"params":  params,
-		"id":      req.RequestId,
+	// Create a JSON-RPC request using structured type
+	request := mcp.NewRequest(req.RequestId, req.FunctionId, params)
+
+	// Convert to map for compatibility with existing interface
+	requestBytes, err := request.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	var jsonRPC map[string]interface{}
+	if err := json.Unmarshal(requestBytes, &jsonRPC); err != nil {
+		return nil, err
 	}
 
 	return jsonRPC, nil

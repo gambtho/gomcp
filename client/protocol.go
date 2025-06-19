@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/localrivet/gomcp/events"
+	"github.com/localrivet/gomcp/mcp"
 )
 
 // RequestOptions contains options for configuring individual requests
@@ -87,19 +88,11 @@ func (c *clientImpl) sendRequestWithOptions(method string, params interface{}, o
 	requestID := c.generateRequestID()
 	requestIDStr := fmt.Sprintf("%d", requestID)
 
-	// Create the request
-	request := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      requestID,
-		"method":  method,
-	}
-
-	if params != nil {
-		request["params"] = params
-	}
+	// Create the request using structured type
+	request := mcp.NewRequest(requestID, method, params)
 
 	// Convert the request to JSON
-	requestJSON, err := json.Marshal(request)
+	requestJSON, err := request.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -276,22 +269,21 @@ func (c *clientImpl) unregisterProgressTracker(requestID string) {
 
 // sendCancellationNotification sends a cancellation notification as required by MCP specification
 func (c *clientImpl) sendCancellationNotification(requestID string, reason string) {
-	// Create the cancellation notification
-	notification := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "notifications/cancelled",
-		"params": map[string]interface{}{
-			"requestId": requestID,
-		},
+	// Create the cancellation notification parameters
+	params := map[string]interface{}{
+		"requestId": requestID,
 	}
 
 	// Add reason if provided
 	if reason != "" {
-		notification["params"].(map[string]interface{})["reason"] = reason
+		params["reason"] = reason
 	}
 
+	// Create notification using structured type
+	notification := mcp.NewNotification("notifications/cancelled", params)
+
 	// Convert to JSON
-	notificationJSON, err := json.Marshal(notification)
+	notificationJSON, err := notification.Marshal()
 	if err != nil {
 		c.logger.Error("failed to marshal cancellation notification", "error", err, "requestId", requestID)
 		return

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/localrivet/gomcp/events"
+	"github.com/localrivet/gomcp/mcp"
 )
 
 // InvalidParametersError represents an error with invalid parameters
@@ -406,14 +407,11 @@ func (s *serverImpl) ProcessPromptRequest(ctx *Context) (interface{}, error) {
 // SendPromptsListChangedNotification sends a notification to inform clients that the prompt list has changed.
 // This is called when prompts are added, removed, or updated, allowing clients to refresh their available prompts.
 func (s *serverImpl) SendPromptsListChangedNotification() error {
-	// Create the notification message
-	notification := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "notifications/prompts/list_changed",
-	}
+	// Create the notification using structured type
+	notification := mcp.NewNotification("notifications/prompts/list_changed", nil)
 
 	// Marshal the notification to JSON
-	notificationBytes, err := json.Marshal(notification)
+	notificationBytes, err := notification.Marshal()
 	if err != nil {
 		return fmt.Errorf("failed to marshal notification: %w", err)
 	}

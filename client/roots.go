@@ -2,11 +2,12 @@
 package client
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"path/filepath"
 	"strings"
+
+	"github.com/localrivet/gomcp/mcp"
 )
 
 // rootsRequest represents a request to the roots manager
@@ -213,15 +214,13 @@ func (c *clientImpl) handleRootsList(requestID int64) error {
 		return err
 	}
 
-	response := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      requestID,
-		"result": map[string]interface{}{
-			"roots": roots,
-		},
+	// Create response using structured type
+	result := map[string]interface{}{
+		"roots": roots,
 	}
+	response := mcp.NewSuccessResponse(requestID, result)
 
-	responseData, err := json.Marshal(response)
+	responseData, err := response.Marshal()
 	if err != nil {
 		return fmt.Errorf("failed to marshal roots/list response: %w", err)
 	}
@@ -241,12 +240,10 @@ func (c *clientImpl) sendRootsListChangedNotification() {
 		return
 	}
 
-	notification := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "notifications/roots/list_changed",
-	}
+	// Create notification using structured type
+	notification := mcp.NewNotification("notifications/roots/list_changed", nil)
 
-	notificationData, err := json.Marshal(notification)
+	notificationData, err := notification.Marshal()
 	if err != nil {
 		// Log error but don't fail the operation
 		return

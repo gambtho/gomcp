@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/localrivet/gomcp/events"
+	"github.com/localrivet/gomcp/mcp"
 )
 
 // handleMessage processes incoming JSON-RPC messages from clients.
@@ -106,17 +107,10 @@ func processBatchItem(s *serverImpl, rawMessage json.RawMessage) interface{} {
 	// Parse the response back to an object for inclusion in the batch response
 	var response interface{}
 	if err := json.Unmarshal(responseBytes, &response); err != nil {
-		// If we can't parse the response, create an error response
+		// If we can't parse the response, create an error response using structs
 		s.logger.Error("failed to parse individual response in batch", "error", err)
-		return map[string]interface{}{
-			"jsonrpc": "2.0",
-			"id":      nil,
-			"error": map[string]interface{}{
-				"code":    -32603,
-				"message": "Internal error",
-				"data":    "Failed to parse individual response",
-			},
-		}
+		errorResp := mcp.NewErrorResponse(nil, -32603, "Internal error", "Failed to parse individual response")
+		return errorResp
 	}
 
 	return response
@@ -247,17 +241,14 @@ func handleSingleMessage(s *serverImpl, message []byte) ([]byte, error) {
 		return nil, nil
 	}
 
-	// Create success response
-	response := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      ctx.Request.ID,
-		"result":  result,
-	}
-
-	responseBytes, err := json.Marshal(response)
+	// Create success response using structs
+	response := mcp.NewSuccessResponse(ctx.Request.ID, result)
+	responseBytes, err := response.Marshal()
 	if err != nil {
 		s.logger.Error("failed to marshal response", "error", err)
-		return createErrorResponse(ctx.Request.ID, -32603, "Internal error", "Failed to marshal response"), nil
+		errorResp := mcp.NewErrorResponse(ctx.Request.ID, -32603, "Internal error", "Failed to marshal response")
+		errorBytes, _ := errorResp.Marshal()
+		return errorBytes, nil
 	}
 
 	// Emit event with actual request and response JSON
@@ -331,30 +322,12 @@ func HandleMessageWithVersion(srv Server, message []byte, version string) ([]byt
 	}
 
 	if err != nil {
-		// Return the error
-		errorResponse := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"id":      request.ID,
-			"error": map[string]interface{}{
-				"code":    -32603, // Internal error
-				"message": err.Error(),
-			},
-		}
-		jsonResponse, _ := json.Marshal(errorResponse)
-		return jsonResponse, nil
+		// Return the error using structs
+		errorResp := mcp.NewErrorResponse(request.ID, -32603, err.Error(), nil)
+		return errorResp.Marshal()
 	}
 
-	// Return the result
-	response := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      request.ID,
-		"result":  result,
-	}
-
-	jsonResponse, err := json.Marshal(response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal response: %w", err)
-	}
-
-	return jsonResponse, nil
+	// Return the result using structs
+	response := mcp.NewSuccessResponse(request.ID, result)
+	return response.Marshal()
 }
