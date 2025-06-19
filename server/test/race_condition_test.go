@@ -394,11 +394,15 @@ func (t *SequenceCapturingTransport) Send(message []byte) error {
 			// It's a notification
 			t.notifications = append(t.notifications, append([]byte{}, message...))
 
+			// Use the current state of initializedReceived to categorize
 			if t.initializedReceived {
 				t.notificationsAfterInit = append(t.notificationsAfterInit, append([]byte{}, message...))
 			} else {
 				t.notificationsBeforeInit = append(t.notificationsBeforeInit, append([]byte{}, message...))
 			}
+		} else {
+			// It's a response, add to responses
+			t.responses = append(t.responses, append([]byte{}, message...))
 		}
 	}
 

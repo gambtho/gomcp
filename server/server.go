@@ -1324,12 +1324,8 @@ func getBool(m map[string]interface{}, key string) bool {
 // sendCapabilityNotification sends a single notification for a capability that changed
 // This is much simpler than complex debouncing and follows the be-very-stingy-with-locks rule
 func (s *serverImpl) sendCapabilityNotification(capabilityType string) {
-	// Only send if initialized - no lock needed for reading a single boolean
-	if !s.initialized {
-		return
-	}
-
 	// Send the appropriate notification without holding any locks
+	// The individual notification methods handle initialization state and queuing
 	go func() {
 		switch capabilityType {
 		case "tools":

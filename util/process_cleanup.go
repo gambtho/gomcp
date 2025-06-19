@@ -4,8 +4,10 @@ package util
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"syscall"
 	"time"
@@ -180,4 +182,192 @@ func (pgm *ProcessGroupManager) CleanupAllProcessGroups(timeout time.Duration) e
 // GetTrackedProcessGroups returns the number of currently tracked process groups.
 func (pgm *ProcessGroupManager) GetTrackedProcessGroups() int {
 	return len(pgm.processGroups)
+}
+
+// ProcessMonitor monitors the parent process and stdin for unexpected termination.
+// This prevents orphaned MCP server processes when the parent (e.g., Cursor) exits unexpectedly.
+type ProcessMonitor struct {
+	parentPID     int
+	logger        *slog.Logger
+	shutdownFunc  func()
+	exitFunc      func(int) // Configurable exit function for testing
+	stopChan      chan struct{}
+	monitorActive bool
+}
+
+// NewProcessMonitor creates a new process monitor.
+// shutdownFunc will be called when the parent process exits or stdin closes.
+func NewProcessMonitor(logger *slog.Logger, shutdownFunc func()) *ProcessMonitor {
+	return &ProcessMonitor{
+		parentPID:    os.Getppid(),
+		logger:       logger,
+		shutdownFunc: shutdownFunc,
+		exitFunc:     os.Exit, // Default to os.Exit
+		stopChan:     make(chan struct{}),
+	}
+}
+
+// SetExitFunc sets a custom exit function (useful for testing).
+// If set to nil, no exit will be performed.
+func (pm *ProcessMonitor) SetExitFunc(exitFunc func(int)) {
+	pm.exitFunc = exitFunc
+}
+
+// Start begins monitoring the parent process and stdin.
+// This should be called once when the server starts.
+func (pm *ProcessMonitor) Start() {
+	if pm.monitorActive {
+		return // Already monitoring
+	}
+
+	pm.monitorActive = true
+
+	// Start parent PID monitoring
+	go pm.monitorParentProcess()
+
+	// Start stdin monitoring
+	go pm.monitorStdin()
+
+	// Set up signal handlers
+	pm.setupSignalHandlers()
+
+	if pm.logger != nil {
+		pm.logger.Debug("process monitor started",
+			"parent_pid", pm.parentPID)
+	}
+}
+
+// Stop stops the process monitor.
+func (pm *ProcessMonitor) Stop() {
+	if !pm.monitorActive {
+		return
+	}
+
+	pm.monitorActive = false
+	close(pm.stopChan)
+
+	if pm.logger != nil {
+		pm.logger.Debug("process monitor stopped")
+	}
+}
+
+// monitorParentProcess watches for parent process termination.
+// If the parent PID changes to 1 (init), it means our parent died.
+func (pm *ProcessMonitor) monitorParentProcess() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-pm.stopChan:
+			return
+		case <-ticker.C:
+			currentParentPID := os.Getppid()
+			if currentParentPID != pm.parentPID {
+				if pm.logger != nil {
+					pm.logger.Info("parent process died, shutting down",
+						"original_parent_pid", pm.parentPID,
+						"current_parent_pid", currentParentPID)
+				}
+				pm.gracefulShutdown("parent process died")
+				return
+			}
+		}
+	}
+}
+
+// monitorStdin watches for stdin closure (POLLHUP equivalent).
+// When the parent process exits, stdin gets closed/disconnected.
+func (pm *ProcessMonitor) monitorStdin() {
+	// Create a buffer to attempt reading from stdin
+	buffer := make([]byte, 1)
+
+	for {
+		select {
+		case <-pm.stopChan:
+			return
+		default:
+			// Set a read deadline to avoid blocking forever
+			os.Stdin.SetReadDeadline(time.Now().Add(1 * time.Second))
+
+			// Try to read from stdin
+			n, err := os.Stdin.Read(buffer)
+
+			// Reset deadline
+			os.Stdin.SetReadDeadline(time.Time{})
+
+			if err != nil {
+				// Check if it's a timeout (expected)
+				if os.IsTimeout(err) {
+					continue
+				}
+
+				// EOF or other error indicates stdin closed
+				if pm.logger != nil {
+					pm.logger.Info("stdin closed or error, shutting down",
+						"error", err.Error())
+				}
+				pm.gracefulShutdown("stdin closed")
+				return
+			}
+
+			// If we actually read data, we need to handle it properly
+			// For MCP servers, this shouldn't happen during monitoring
+			// as the main readLoop should be handling stdin
+			if n > 0 {
+				if pm.logger != nil {
+					pm.logger.Debug("unexpected data read during stdin monitoring",
+						"bytes", n)
+				}
+			}
+
+			// Brief sleep to avoid CPU spinning
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+// setupSignalHandlers configures signal handlers for graceful shutdown.
+func (pm *ProcessMonitor) setupSignalHandlers() {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		select {
+		case <-pm.stopChan:
+			return
+		case sig := <-sigChan:
+			if pm.logger != nil {
+				pm.logger.Info("received signal, shutting down",
+					"signal", sig.String())
+			}
+			pm.gracefulShutdown("signal received: " + sig.String())
+		}
+	}()
+}
+
+// gracefulShutdown performs a graceful shutdown.
+func (pm *ProcessMonitor) gracefulShutdown(reason string) {
+	if !pm.monitorActive {
+		return // Already shutting down
+	}
+
+	pm.monitorActive = false
+
+	if pm.logger != nil {
+		pm.logger.Info("initiating graceful shutdown", "reason", reason)
+	}
+
+	// Call the shutdown function if provided
+	if pm.shutdownFunc != nil {
+		pm.shutdownFunc()
+	}
+
+	// Give a brief moment for cleanup
+	time.Sleep(100 * time.Millisecond)
+
+	// Exit the process (if exit function is set)
+	if pm.exitFunc != nil {
+		pm.exitFunc(0)
+	}
 }

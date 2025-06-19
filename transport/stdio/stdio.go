@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/localrivet/gomcp/transport"
+	"github.com/localrivet/gomcp/util"
 )
 
 // isValidJSONRPC checks if a message appears to be a valid JSON-RPC message.
@@ -61,11 +63,13 @@ func isValidJSONRPC(data []byte) bool {
 // Transport implements the transport.Transport interface for Standard I/O.
 type Transport struct {
 	transport.BaseTransport
-	reader  *bufio.Reader
-	writer  *bufio.Writer
-	done    chan struct{}
-	readEOF bool
-	newline bool // Whether to append a newline to each message
+	reader         *bufio.Reader
+	writer         *bufio.Writer
+	done           chan struct{}
+	readEOF        bool
+	newline        bool // Whether to append a newline to each message
+	processMonitor *util.ProcessMonitor
+	logger         *slog.Logger
 }
 
 // NewTransport creates a new Standard I/O transport.
@@ -77,11 +81,45 @@ func NewTransport() *Transport {
 // NewTransportWithIO creates a new Standard I/O transport with custom io.Reader and io.Writer.
 // This is particularly useful for testing or custom I/O streams.
 func NewTransportWithIO(in io.Reader, out io.Writer) *Transport {
-	return &Transport{
+	t := &Transport{
 		reader:  bufio.NewReader(in),
 		writer:  bufio.NewWriter(out),
 		done:    make(chan struct{}),
 		newline: true, // Default to appending newlines
+	}
+
+	// Set up process monitor for orphan prevention
+	t.processMonitor = util.NewProcessMonitor(t.logger, func() {
+		// Shutdown function called when parent exits
+		if t.logger != nil {
+			t.logger.Info("parent process exited, shutting down stdio transport")
+		}
+		t.Stop()
+	})
+
+	return t
+}
+
+// SetLogger sets the logger for this transport.
+// This should be called before Start() to enable process monitoring logs.
+func (t *Transport) SetLogger(logger *slog.Logger) {
+	t.logger = logger
+	// Update the process monitor with the logger
+	if t.processMonitor != nil {
+		t.processMonitor = util.NewProcessMonitor(logger, func() {
+			if logger != nil {
+				logger.Info("parent process exited, shutting down stdio transport")
+			}
+			t.Stop()
+		})
+	}
+}
+
+// DisableProcessMonitoring disables process monitoring (useful for testing).
+// This prevents the transport from calling os.Exit() during tests.
+func (t *Transport) DisableProcessMonitoring() {
+	if t.processMonitor != nil {
+		t.processMonitor.SetExitFunc(nil)
 	}
 }
 
@@ -93,6 +131,14 @@ func (t *Transport) Initialize() error {
 
 // Start starts the transport, beginning to read from stdin.
 func (t *Transport) Start() error {
+	// Start process monitoring to prevent orphaned processes
+	if t.processMonitor != nil {
+		t.processMonitor.Start()
+		if t.logger != nil {
+			t.logger.Debug("stdio transport: started process monitoring for orphan prevention")
+		}
+	}
+
 	// Start a goroutine to read from stdin
 	go t.readLoop()
 	return nil
@@ -100,8 +146,19 @@ func (t *Transport) Start() error {
 
 // Stop stops the transport, closing the done channel.
 func (t *Transport) Stop() error {
+	// Stop process monitoring
+	if t.processMonitor != nil {
+		t.processMonitor.Stop()
+	}
+
 	// Signal the read loop to stop
-	close(t.done)
+	select {
+	case <-t.done:
+		// Already stopped
+	default:
+		close(t.done)
+	}
+
 	return nil
 }
 

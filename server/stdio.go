@@ -51,6 +51,12 @@ func (s *serverImpl) AsStdio(logFile ...string) Server {
 		s.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 
-	s.transport = stdio.NewTransport()
+	// Create stdio transport
+	stdioTransport := stdio.NewTransport()
+
+	// Set the logger on the transport for process monitoring
+	stdioTransport.SetLogger(s.logger)
+
+	s.transport = stdioTransport
 	return s
 }
