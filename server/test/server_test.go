@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/localrivet/gomcp/server"
+	"github.com/localrivet/gomcp/transport/embedded"
 )
 
 func TestNewServer(t *testing.T) {
@@ -44,6 +45,42 @@ func TestServerFluent(t *testing.T) {
 	same = s.AsHTTP(":0")
 	if same != s {
 		t.Error("Expected AsHTTP() to return the same server instance")
+	}
+
+	// Test AsEmbedded with a transport pair
+	_, serverTransport := embedded.NewTransportPair()
+	same = s.AsEmbedded(serverTransport)
+	if same != s {
+		t.Error("Expected AsEmbedded() to return the same server instance")
+	}
+}
+
+func TestAsEmbedded(t *testing.T) {
+	s := server.NewServer("test")
+
+	// Create a transport pair for embedded communication
+	_, serverTransport := embedded.NewTransportPair()
+
+	// Configure as embedded server
+	s = s.AsEmbedded(serverTransport)
+
+	// Get the underlying server
+	serverImpl := s.GetServer()
+
+	// Check that a transport was set
+	if serverImpl.GetTransport() == nil {
+		t.Fatal("Expected transport to be set, got nil")
+	}
+
+	// Check that the transport is an embedded transport
+	embeddedTransport, ok := serverImpl.GetTransport().(*embedded.Transport)
+	if !ok {
+		t.Errorf("Expected transport to be *embedded.Transport, got %T", serverImpl.GetTransport())
+	}
+
+	// Verify it's the same transport we passed in
+	if embeddedTransport != serverTransport {
+		t.Error("Expected transport to be the same instance we passed to AsEmbedded")
 	}
 }
 

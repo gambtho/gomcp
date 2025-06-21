@@ -17,6 +17,7 @@ import (
 	"github.com/localrivet/gomcp/events"
 	"github.com/localrivet/gomcp/mcp"
 	"github.com/localrivet/gomcp/transport"
+	"github.com/localrivet/gomcp/transport/embedded"
 	"github.com/localrivet/gomcp/transport/grpc"
 	"github.com/localrivet/gomcp/transport/http"
 	"github.com/localrivet/gomcp/transport/mqtt"
@@ -356,6 +357,27 @@ type Server interface {
 	//	    nats.WithCredentials("username", "password"),
 	//	    nats.WithSubjectPrefix("custom/subject/prefix"))
 	AsNATS(serverURL string, options ...nats.NATSOption) Server
+
+	// AsEmbedded configures the server to use embedded (in-process) transport for communication.
+	//
+	// Embedded transport provides zero-overhead in-process communication, perfect for
+	// testing, library integration, and embedded use cases where network overhead
+	// should be minimized.
+	//
+	// The transport parameter should be the server-side transport from a transport pair
+	// created using embedded.NewTransportPair().
+	//
+	// Example:
+	//
+	//	// Create transport pair
+	//	serverTransport, clientTransport := embedded.NewTransportPair()
+	//
+	//	// Configure server with the server-side transport
+	//	server.AsEmbedded(serverTransport)
+	//
+	//	// Use clientTransport with your MCP client
+	//	client := client.NewEmbeddedTransport(clientTransport)
+	AsEmbedded(transport *embedded.Transport) Server
 
 	// GetServer returns the underlying server implementation
 	// This is primarily for internal use and testing.
