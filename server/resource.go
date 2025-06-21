@@ -307,7 +307,7 @@ func (s *serverImpl) ProcessResourceTemplatesList(ctx *Context) (interface{}, er
 
 	// For now, we'll use a simple pagination that returns all template resources
 	const maxPageSize = 50
-	templates := make([]map[string]interface{}, 0)
+	templates := make([]ResourceTemplateInfo, 0)
 	var nextCursor string
 
 	// Convert resources to the expected format
@@ -333,11 +333,11 @@ func (s *serverImpl) ProcessResourceTemplatesList(ctx *Context) (interface{}, er
 		}
 
 		// Add the template to the result
-		templates = append(templates, map[string]interface{}{
-			"uriTemplate": resource.Path,
-			"name":        name,
-			"description": resource.Description,
-			"mimeType":    mimeType,
+		templates = append(templates, ResourceTemplateInfo{
+			URITemplate: resource.Path,
+			Name:        name,
+			Description: resource.Description,
+			MimeType:    mimeType,
 		})
 
 		i++
@@ -348,17 +348,8 @@ func (s *serverImpl) ProcessResourceTemplatesList(ctx *Context) (interface{}, er
 		}
 	}
 
-	// Return the list of resource templates
-	result := map[string]interface{}{
-		"resourceTemplates": templates,
-	}
-
-	// Only add nextCursor if there are more results
-	if nextCursor != "" {
-		result["nextCursor"] = nextCursor
-	}
-
-	return result, nil
+	// Return the list of resource templates using structured response
+	return NewResourceTemplatesListResponse(templates, nextCursor), nil
 }
 
 // ensureContentsArray ensures a response has a properly formatted contents array.
@@ -851,7 +842,7 @@ func (s *serverImpl) ProcessResourceList(ctx *Context) (interface{}, error) {
 
 	// For now, we'll use a simple pagination that returns all resources
 	const maxPageSize = 50
-	resources := make([]map[string]interface{}, 0)
+	resources := make([]ResourceInfo, 0)
 	var nextCursor string
 
 	// Convert resources to the expected format
@@ -882,11 +873,11 @@ func (s *serverImpl) ProcessResourceList(ctx *Context) (interface{}, error) {
 		}
 
 		// Add the resource to the result
-		resourceInfo := map[string]interface{}{
-			"uri":         resource.Path,
-			"name":        name,
-			"description": resource.Description,
-			"mimeType":    mimeType,
+		resourceInfo := ResourceInfo{
+			URI:         resource.Path,
+			Name:        name,
+			Description: resource.Description,
+			MimeType:    mimeType,
 		}
 
 		resources = append(resources, resourceInfo)
@@ -899,17 +890,8 @@ func (s *serverImpl) ProcessResourceList(ctx *Context) (interface{}, error) {
 		}
 	}
 
-	// Return the list of resources
-	result := map[string]interface{}{
-		"resources": resources,
-	}
-
-	// Only add nextCursor if there are more results
-	if nextCursor != "" {
-		result["nextCursor"] = nextCursor
-	}
-
-	return result, nil
+	// Return the list of resources using structured response
+	return NewResourceListResponse(resources, nextCursor), nil
 }
 
 // findResourceAndExtractParams finds a resource matching the given URI

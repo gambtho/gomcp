@@ -4,10 +4,30 @@ import (
 	"encoding/json"
 )
 
-// ContentItem represents a single content item in a response.
-// In the MCP protocol, responses are structured as collections of typed content items,
-// allowing for rich, multimodal responses that can include text, images, links, files,
-// JSON data, and binary blobs with appropriate metadata.
+// Response types for MCP protocol messages
+// These structs ensure proper JSON marshaling and prevent character escaping issues
+
+// ToolListResponse represents the response for tools/list requests
+type ToolListResponse struct {
+	Tools      []ToolInfo `json:"tools"`
+	NextCursor string     `json:"nextCursor,omitempty"`
+}
+
+// ToolInfo represents information about a single tool
+type ToolInfo struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema interface{}            `json:"inputSchema"`
+	Annotations map[string]interface{} `json:"annotations,omitempty"`
+}
+
+// ToolCallResponse represents the response for tools/call requests
+type ToolCallResponse struct {
+	Content []ContentItem `json:"content"`
+	IsError bool          `json:"isError"`
+}
+
+// ContentItem represents a single content item in tool/prompt responses
 type ContentItem struct {
 	Type     string      `json:"type"`
 	Text     string      `json:"text,omitempty"`
@@ -15,10 +35,232 @@ type ContentItem struct {
 	AltText  string      `json:"altText,omitempty"`
 	URL      string      `json:"url,omitempty"`
 	Title    string      `json:"title,omitempty"`
-	Data     interface{} `json:"data,omitempty"`
 	MimeType string      `json:"mimeType,omitempty"`
+	Data     interface{} `json:"data,omitempty"`
 	Filename string      `json:"filename,omitempty"`
-	Blob     string      `json:"blob,omitempty"` // Add blob support for MCP Inspector validation
+}
+
+// PromptListResponse represents the response for prompts/list requests
+type PromptListResponse struct {
+	Prompts    []PromptInfo `json:"prompts"`
+	NextCursor string       `json:"nextCursor,omitempty"`
+}
+
+// PromptInfo represents information about a single prompt
+type PromptInfo struct {
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Arguments   []PromptArgument `json:"arguments,omitempty"`
+}
+
+// PromptGetResponse represents the response for prompts/get requests
+type PromptGetResponse struct {
+	Description string          `json:"description"`
+	Messages    []PromptMessage `json:"messages"`
+}
+
+// PromptMessage represents a single message in a prompt response
+type PromptMessage struct {
+	Role    string        `json:"role"`
+	Content PromptContent `json:"content"`
+}
+
+// ContentType represents the type of content in a prompt
+type ContentType string
+
+// ContentTypeText is used for plain text content
+const ContentTypeText ContentType = "text"
+
+// PromptContent represents the content of a prompt message
+type PromptContent struct {
+	Type ContentType `json:"type"`
+	Text string      `json:"text,omitempty"`
+}
+
+// PromptArgument represents an argument for a prompt
+type PromptArgument struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+// ResourceListResponse represents the response for resources/list requests
+type ResourceListResponse struct {
+	Resources  []ResourceInfo `json:"resources"`
+	NextCursor string         `json:"nextCursor,omitempty"`
+}
+
+// ResourceInfo represents information about a single resource
+type ResourceInfo struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	MimeType    string `json:"mimeType"`
+}
+
+// ResourceTemplatesListResponse represents the response for resources/templates/list requests
+type ResourceTemplatesListResponse struct {
+	ResourceTemplates []ResourceTemplateInfo `json:"resourceTemplates"`
+	NextCursor        string                 `json:"nextCursor,omitempty"`
+}
+
+// ResourceTemplateInfo represents information about a single resource template
+type ResourceTemplateInfo struct {
+	URITemplate string                 `json:"uriTemplate"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	MimeType    string                 `json:"mimeType,omitempty"`
+	Annotations map[string]interface{} `json:"annotations,omitempty"`
+}
+
+// ResourceReadResponse represents the response for resources/read requests
+type ResourceReadResponse struct {
+	Contents []ResourceContent `json:"contents"`
+}
+
+// ResourceContent represents a single resource content item
+type ResourceContent struct {
+	URI     string        `json:"uri"`
+	Text    string        `json:"text,omitempty"`
+	Content []ContentItem `json:"content,omitempty"`
+}
+
+// InitializeResponse represents the response for initialize requests
+type InitializeResponse struct {
+	ProtocolVersion string                 `json:"protocolVersion"`
+	ServerInfo      ServerInfo             `json:"serverInfo"`
+	Capabilities    map[string]interface{} `json:"capabilities"`
+}
+
+// ServerInfo represents server information in initialize responses
+type ServerInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// RootsListResponse represents the response for roots/list requests
+type RootsListResponse struct {
+	Roots []RootInfo `json:"roots"`
+}
+
+// RootInfo represents information about a single root
+type RootInfo struct {
+	URI  string `json:"uri"`
+	Name string `json:"name,omitempty"`
+}
+
+// EmptyResponse represents an empty success response
+type EmptyResponse struct{}
+
+// Helper functions to create responses
+
+// NewToolListResponse creates a new ToolListResponse
+func NewToolListResponse(tools []ToolInfo, nextCursor string) *ToolListResponse {
+	return &ToolListResponse{
+		Tools:      tools,
+		NextCursor: nextCursor,
+	}
+}
+
+// NewToolCallResponse creates a new ToolCallResponse
+func NewToolCallResponse(content []ContentItem, isError bool) *ToolCallResponse {
+	return &ToolCallResponse{
+		Content: content,
+		IsError: isError,
+	}
+}
+
+// NewPromptListResponse creates a new PromptListResponse
+func NewPromptListResponse(prompts []PromptInfo, nextCursor string) *PromptListResponse {
+	return &PromptListResponse{
+		Prompts:    prompts,
+		NextCursor: nextCursor,
+	}
+}
+
+// NewPromptGetResponse creates a new PromptGetResponse
+func NewPromptGetResponse(description string, messages []PromptMessage) *PromptGetResponse {
+	return &PromptGetResponse{
+		Description: description,
+		Messages:    messages,
+	}
+}
+
+// NewResourceListResponse creates a new ResourceListResponse
+func NewResourceListResponse(resources []ResourceInfo, nextCursor string) *ResourceListResponse {
+	return &ResourceListResponse{
+		Resources:  resources,
+		NextCursor: nextCursor,
+	}
+}
+
+// NewResourceTemplatesListResponse creates a new ResourceTemplatesListResponse
+func NewResourceTemplatesListResponse(templates []ResourceTemplateInfo, nextCursor string) *ResourceTemplatesListResponse {
+	return &ResourceTemplatesListResponse{
+		ResourceTemplates: templates,
+		NextCursor:        nextCursor,
+	}
+}
+
+// NewResourceReadResponse creates a new ResourceReadResponse
+func NewResourceReadResponse(contents []ResourceContent) *ResourceReadResponse {
+	return &ResourceReadResponse{
+		Contents: contents,
+	}
+}
+
+// NewInitializeResponse creates a new InitializeResponse
+func NewInitializeResponse(protocolVersion string, serverInfo ServerInfo, capabilities map[string]interface{}) *InitializeResponse {
+	return &InitializeResponse{
+		ProtocolVersion: protocolVersion,
+		ServerInfo:      serverInfo,
+		Capabilities:    capabilities,
+	}
+}
+
+// NewRootsListResponse creates a new RootsListResponse
+func NewRootsListResponse(roots []RootInfo) *RootsListResponse {
+	return &RootsListResponse{
+		Roots: roots,
+	}
+}
+
+// Helper functions to create content items
+
+// NewTextContent creates a new text content item
+func NewTextContent(text string) ContentItem {
+	return ContentItem{
+		Type: "text",
+		Text: text,
+	}
+}
+
+// NewImageContent creates a new image content item
+func NewImageContent(imageURL, altText string) ContentItem {
+	return ContentItem{
+		Type:     "image",
+		ImageURL: imageURL,
+		AltText:  altText,
+	}
+}
+
+// NewLinkContent creates a new link content item
+func NewLinkContent(url, title string) ContentItem {
+	return ContentItem{
+		Type:  "link",
+		URL:   url,
+		Title: title,
+	}
+}
+
+// NewFileContent creates a new file content item
+func NewFileContent(mimeType string, data interface{}, filename string) ContentItem {
+	return ContentItem{
+		Type:     "file",
+		MimeType: mimeType,
+		Data:     data,
+		Filename: filename,
+	}
 }
 
 // TextContent creates a new text content item.
@@ -114,7 +356,7 @@ func JSONContent(data interface{}) ContentItem {
 func BlobContent(blob string, mimeType string) ContentItem {
 	return ContentItem{
 		Type:     "blob",
-		Blob:     blob,
+		Data:     blob,
 		MimeType: mimeType,
 	}
 }
@@ -317,5 +559,17 @@ func (a AudioResource) ToResourceResponse() map[string]interface{} {
 
 	return map[string]interface{}{
 		"content": []map[string]interface{}{contentItem},
+	}
+}
+
+// ShutdownResponse represents the response for shutdown requests
+type ShutdownResponse struct {
+	Success bool `json:"success"`
+}
+
+// NewShutdownResponse creates a new shutdown response
+func NewShutdownResponse(success bool) *ShutdownResponse {
+	return &ShutdownResponse{
+		Success: success,
 	}
 }

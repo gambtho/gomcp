@@ -31,15 +31,8 @@ func NewInvalidParametersError(message string) *InvalidParametersError {
 	return &InvalidParametersError{Message: message}
 }
 
-// ContentType represents the type of content in a prompt message.
-// Different content types have different required fields and rendering behaviors.
-type ContentType string
-
 // Content type constants define the supported content types for prompts.
 const (
-	// ContentTypeText is used for plain text content
-	ContentTypeText ContentType = "text"
-
 	// ContentTypeImage is used for image content, which requires an imageUrl
 	ContentTypeImage ContentType = "image"
 
@@ -49,25 +42,6 @@ const (
 	// ContentTypeResource is used for referencing resources by URI
 	ContentTypeResource ContentType = "resource"
 )
-
-// PromptContent represents the content of a prompt message.
-// It defines a block of content with a specific type and associated data.
-type PromptContent struct {
-	// Type specifies the kind of content (text, image, audio, resource)
-	Type ContentType `json:"type"`
-
-	// Text contains the text content when Type is ContentTypeText
-	Text string `json:"text,omitempty"`
-
-	// Data contains binary data encoded as base64 for non-text content
-	Data string `json:"data,omitempty"`
-
-	// MimeType specifies the format of the Data field
-	MimeType string `json:"mimeType,omitempty"`
-
-	// Resource contains resource reference information when Type is ContentTypeResource
-	Resource map[string]interface{} `json:"resource,omitempty"`
-}
 
 // PromptTemplate represents a template for a prompt with a role and content.
 // Templates can contain variables in the format {{variable}} which are
@@ -79,19 +53,6 @@ type PromptTemplate struct {
 
 	// Content contains the template text with variables in {{variable}} format
 	Content string
-}
-
-// PromptArgument represents an argument for a prompt.
-// Arguments are defined by variable names in prompt templates.
-type PromptArgument struct {
-	// Name is the identifier for the argument, matching {{name}} in templates
-	Name string `json:"name"`
-
-	// Description explains what the argument is for
-	Description string `json:"description"`
-
-	// Required indicates whether the argument must be provided
-	Required bool `json:"required"`
 }
 
 // Prompt represents a prompt registered with the server.
@@ -219,7 +180,7 @@ func (s *serverImpl) ProcessPromptList(ctx *Context) (interface{}, error) {
 
 	// For now, we'll use a simple pagination that returns all prompts
 	const maxPageSize = 50
-	var prompts = make([]map[string]interface{}, 0)
+	var prompts = make([]PromptInfo, 0)
 	var nextCursor string
 
 	// Convert prompts to the expected format
@@ -231,10 +192,10 @@ func (s *serverImpl) ProcessPromptList(ctx *Context) (interface{}, error) {
 		}
 
 		// Add the prompt to the result
-		promptInfo := map[string]interface{}{
-			"name":        prompt.Name,
-			"description": prompt.Description,
-			"arguments":   prompt.Arguments, // Always include arguments field, even if empty
+		promptInfo := PromptInfo{
+			Name:        prompt.Name,
+			Description: prompt.Description,
+			Arguments:   prompt.Arguments, // Always include arguments field, even if empty
 		}
 
 		prompts = append(prompts, promptInfo)
@@ -247,17 +208,8 @@ func (s *serverImpl) ProcessPromptList(ctx *Context) (interface{}, error) {
 		}
 	}
 
-	// Return the list of prompts
-	result := map[string]interface{}{
-		"prompts": prompts,
-	}
-
-	// Only add nextCursor if there are more results
-	if nextCursor != "" {
-		result["nextCursor"] = nextCursor
-	}
-
-	return result, nil
+	// Return the list of prompts using structured response
+	return NewPromptListResponse(prompts, nextCursor), nil
 }
 
 // SubstituteVariables replaces all {{variable}} patterns in the content string
@@ -357,7 +309,7 @@ func (s *serverImpl) ProcessPromptRequest(ctx *Context) (interface{}, error) {
 	}
 
 	// Render the prompt templates
-	renderedTemplates := make([]map[string]interface{}, 0, len(prompt.Templates))
+	renderedTemplates := make([]PromptMessage, 0, len(prompt.Templates))
 	for _, template := range prompt.Templates {
 		// Substitute variables in the content
 		renderedContent, err := SubstituteVariables(template.Content, args)
@@ -366,11 +318,11 @@ func (s *serverImpl) ProcessPromptRequest(ctx *Context) (interface{}, error) {
 		}
 
 		// Create a message from the template with proper content format
-		renderedTemplates = append(renderedTemplates, map[string]interface{}{
-			"role": template.Role,
-			"content": map[string]interface{}{
-				"type": "text",
-				"text": renderedContent,
+		renderedTemplates = append(renderedTemplates, PromptMessage{
+			Role: template.Role,
+			Content: PromptContent{
+				Type: ContentTypeText,
+				Text: renderedContent,
 			},
 		})
 	}
@@ -397,11 +349,8 @@ func (s *serverImpl) ProcessPromptRequest(ctx *Context) (interface{}, error) {
 		})
 	}()
 
-	// Return the rendered prompt with description
-	return map[string]interface{}{
-		"description": prompt.Description,
-		"messages":    renderedTemplates,
-	}, nil
+	// Return the rendered prompt with description using structured response
+	return NewPromptGetResponse(prompt.Description, renderedTemplates), nil
 }
 
 // SendPromptsListChangedNotification sends a notification to inform clients that the prompt list has changed.

@@ -306,7 +306,7 @@ func (s *serverImpl) ProcessToolList(ctx *Context) (interface{}, error) {
 	// For now, we'll use a simple pagination that returns all tools
 	// In a real implementation, you'd parse the cursor and limit results
 	const maxPageSize = 50
-	var tools = make([]map[string]interface{}, 0, len(s.tools))
+	var tools = make([]ToolInfo, 0, len(s.tools))
 	var nextCursor string
 
 	// Convert tools to the expected format
@@ -319,15 +319,15 @@ func (s *serverImpl) ProcessToolList(ctx *Context) (interface{}, error) {
 		}
 
 		// Add the tool to the result
-		toolInfo := map[string]interface{}{
-			"name":        tool.Name,
-			"description": tool.Description,
-			"inputSchema": tool.Schema,
+		toolInfo := ToolInfo{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: tool.Schema,
 		}
 
 		// Only include annotations if they exist
 		if len(tool.Annotations) > 0 {
-			toolInfo["annotations"] = tool.Annotations
+			toolInfo.Annotations = tool.Annotations
 		}
 
 		tools = append(tools, toolInfo)
@@ -340,17 +340,8 @@ func (s *serverImpl) ProcessToolList(ctx *Context) (interface{}, error) {
 		}
 	}
 
-	// Return the list of tools
-	result := map[string]interface{}{
-		"tools": tools,
-	}
-
-	// Only add nextCursor if there are more results
-	if nextCursor != "" {
-		result["nextCursor"] = nextCursor
-	}
-
-	return result, nil
+	// Return the list of tools using structured response
+	return NewToolListResponse(tools, nextCursor), nil
 }
 
 // executeTool executes a registered tool with the given arguments.
@@ -471,106 +462,134 @@ func (s *serverImpl) ProcessToolCall(ctx *Context) (interface{}, error) {
 	if err != nil {
 		// For tool-specific errors, we still return a valid result but with isError=true
 		if strings.Contains(err.Error(), "tool execution failed:") {
-			return map[string]interface{}{
-				"content": []map[string]interface{}{
-					{
-						"type": "text",
-						"text": err.Error(),
-					},
-				},
-				"isError": true,
-			}, nil
+			return NewToolCallResponse([]ContentItem{NewTextContent(err.Error())}, true), nil
 		}
 		// For other errors (like tool not found), return a protocol error
 		return nil, err
 	}
 
-	// Format the result according to the specification
-	formattedResult := map[string]interface{}{
-		"content": []map[string]interface{}{},
-		"isError": false,
-	}
+	// Format the result according to the specification using structured types
+	var content []ContentItem
+	var isError bool = false
 
 	// Add appropriate content based on result type
 	switch v := result.(type) {
 	case string:
 		// Simple text result
-		formattedResult["content"] = []map[string]interface{}{
-			{
-				"type": "text",
-				"text": v,
-			},
-		}
+		content = []ContentItem{NewTextContent(v)}
 	case map[string]interface{}:
 		// If result is already in the expected format with content field, use it directly
-		if content, ok := v["content"]; ok {
-			formattedResult["content"] = content
-			if isError, ok := v["isError"].(bool); ok {
-				formattedResult["isError"] = isError
+		if existingContent, ok := v["content"]; ok {
+			// Handle both []interface{} and []map[string]interface{} types
+			var itemMaps []map[string]interface{}
+
+			if contentArray, ok := existingContent.([]interface{}); ok {
+				for _, item := range contentArray {
+					if itemMap, ok := item.(map[string]interface{}); ok {
+						itemMaps = append(itemMaps, itemMap)
+					}
+				}
+			} else if contentArray, ok := existingContent.([]map[string]interface{}); ok {
+				itemMaps = contentArray
+			}
+
+			// Process the content items
+			for _, itemMap := range itemMaps {
+				contentItem := ContentItem{
+					Type: getString(itemMap, "type"),
+					Text: getString(itemMap, "text"),
+				}
+				if contentItem.Type == "image" {
+					contentItem.ImageURL = getString(itemMap, "imageUrl")
+					contentItem.AltText = getString(itemMap, "altText")
+				} else if contentItem.Type == "audio" {
+					contentItem.URL = getString(itemMap, "audioUrl")
+					contentItem.AltText = getString(itemMap, "altText")
+					contentItem.MimeType = getString(itemMap, "mimeType")
+				} else if contentItem.Type == "link" {
+					contentItem.URL = getString(itemMap, "url")
+					contentItem.Title = getString(itemMap, "title")
+				} else if contentItem.Type == "file" {
+					contentItem.MimeType = getString(itemMap, "mimeType")
+					contentItem.Data = itemMap["data"]
+					contentItem.Filename = getString(itemMap, "filename")
+				}
+				content = append(content, contentItem)
+			}
+			if existingIsError, ok := v["isError"].(bool); ok {
+				isError = existingIsError
 			}
 		} else if imageUrl, ok := v["imageUrl"].(string); ok {
 			// Handle image result
-			formattedResult["content"] = []map[string]interface{}{
-				{
-					"type":     "image",
-					"imageUrl": imageUrl,
-					"altText":  v["altText"], // Include alt text if provided
-				},
-			}
+			altText, _ := v["altText"].(string)
+			content = []ContentItem{NewImageContent(imageUrl, altText)}
 		} else if url, ok := v["url"].(string); ok {
 			// Handle link result
-			formattedResult["content"] = []map[string]interface{}{
-				{
-					"type":  "link",
-					"url":   url,
-					"title": v["title"], // Include title if provided
-				},
-			}
+			title, _ := v["title"].(string)
+			content = []ContentItem{NewLinkContent(url, title)}
 		} else if mimeType, ok := v["mimeType"].(string); ok && v["data"] != nil {
 			// Handle binary/file data
-			formattedResult["content"] = []map[string]interface{}{
-				{
-					"type":     "file",
-					"mimeType": mimeType,
-					"data":     v["data"],
-					"filename": v["filename"], // Include filename if provided
-				},
-			}
+			filename, _ := v["filename"].(string)
+			content = []ContentItem{NewFileContent(mimeType, v["data"], filename)}
 		} else {
 			// Otherwise convert the map to JSON and use as text
 			jsonData, _ := json.MarshalIndent(v, "", "  ")
-			formattedResult["content"] = []map[string]interface{}{
-				{
-					"type": "text",
-					"text": string(jsonData),
-				},
-			}
+			content = []ContentItem{NewTextContent(string(jsonData))}
 		}
 	case []interface{}:
 		// If it's an array of content items, try to use it directly
-		contentItems := make([]map[string]interface{}, 0, len(v))
-
-		// Process each item and add to content
 		for _, item := range v {
 			if contentMap, ok := item.(map[string]interface{}); ok {
 				// Verify it has a type field
 				if contentType, hasType := contentMap["type"].(string); hasType {
-					// Validate based on content type
+					contentItem := ContentItem{Type: contentType}
+
+					// Validate and populate based on content type
 					switch contentType {
 					case "text":
-						if _, hasText := contentMap["text"]; !hasText {
-							contentMap["text"] = "Missing text content"
+						if text, hasText := contentMap["text"].(string); hasText {
+							contentItem.Text = text
+						} else {
+							contentItem.Text = "Missing text content"
 						}
 					case "image":
-						if _, hasUrl := contentMap["imageUrl"]; !hasUrl {
+						if imageUrl, hasUrl := contentMap["imageUrl"].(string); hasUrl {
+							contentItem.ImageURL = imageUrl
+							if altText, hasAlt := contentMap["altText"].(string); hasAlt {
+								contentItem.AltText = altText
+							}
+						} else {
 							continue // Skip invalid image items
 						}
+					case "audio":
+						if audioUrl, hasUrl := contentMap["audioUrl"].(string); hasUrl {
+							contentItem.URL = audioUrl
+							if altText, hasAlt := contentMap["altText"].(string); hasAlt {
+								contentItem.AltText = altText
+							}
+							if mimeType, hasMime := contentMap["mimeType"].(string); hasMime {
+								contentItem.MimeType = mimeType
+							}
+						} else {
+							continue // Skip invalid audio items
+						}
 					case "link":
-						if _, hasUrl := contentMap["url"]; !hasUrl {
+						if url, hasUrl := contentMap["url"].(string); hasUrl {
+							contentItem.URL = url
+							if title, hasTitle := contentMap["title"].(string); hasTitle {
+								contentItem.Title = title
+							}
+						} else {
 							continue // Skip invalid link items
 						}
 					case "file":
-						if _, hasMime := contentMap["mimeType"]; !hasMime || contentMap["data"] == nil {
+						if mimeType, hasMime := contentMap["mimeType"].(string); hasMime && contentMap["data"] != nil {
+							contentItem.MimeType = mimeType
+							contentItem.Data = contentMap["data"]
+							if filename, hasFilename := contentMap["filename"].(string); hasFilename {
+								contentItem.Filename = filename
+							}
+						} else {
 							continue // Skip invalid file items
 						}
 					default:
@@ -578,36 +597,23 @@ func (s *serverImpl) ProcessToolCall(ctx *Context) (interface{}, error) {
 						continue
 					}
 
-					contentItems = append(contentItems, contentMap)
+					content = append(content, contentItem)
 				}
 			}
 		}
 
-		// If we found valid content items, use them
-		if len(contentItems) > 0 {
-			formattedResult["content"] = contentItems
-		} else {
-			// Fallback: Convert the array to JSON
+		// If no valid content items were found, convert the array to JSON
+		if len(content) == 0 {
 			jsonData, _ := json.MarshalIndent(v, "", "  ")
-			formattedResult["content"] = []map[string]interface{}{
-				{
-					"type": "text",
-					"text": string(jsonData),
-				},
-			}
+			content = []ContentItem{NewTextContent(string(jsonData))}
 		}
 	default:
 		// For other types, convert to JSON
 		jsonData, _ := json.MarshalIndent(v, "", "  ")
-		formattedResult["content"] = []map[string]interface{}{
-			{
-				"type": "text",
-				"text": string(jsonData),
-			},
-		}
+		content = []ContentItem{NewTextContent(string(jsonData))}
 	}
 
-	return formattedResult, nil
+	return NewToolCallResponse(content, isError), nil
 }
 
 // SendToolsListChangedNotification sends a notification to inform clients that the tool list has changed.

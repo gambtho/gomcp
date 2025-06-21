@@ -230,45 +230,34 @@ func TestProcessPromptRequest(t *testing.T) {
 		t.Fatalf("ProcessPromptRequest() error = %v", err)
 	}
 
-	// Check the result
-	resultMap, ok := result.(map[string]interface{})
+	// Check the result - should be a structured response
+	promptResponse, ok := result.(*server.PromptGetResponse)
 	if !ok {
-		t.Fatalf("Expected result to be a map, got %T", result)
+		t.Fatalf("Expected result to be a *PromptGetResponse, got %T", result)
 	}
 
 	// Check the description
-	description, ok := resultMap["description"].(string)
-	if !ok || description != "A test prompt" {
-		t.Errorf("Expected description 'A test prompt', got '%v'", description)
+	if promptResponse.Description != "A test prompt" {
+		t.Errorf("Expected description 'A test prompt', got '%v'", promptResponse.Description)
 	}
 
 	// Check the messages
-	messages, ok := resultMap["messages"].([]map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected messages to be a slice of maps, got %T", resultMap["messages"])
-	}
-	if len(messages) != 1 {
-		t.Errorf("Expected 1 message, got %d", len(messages))
+	if len(promptResponse.Messages) != 1 {
+		t.Errorf("Expected 1 message, got %d", len(promptResponse.Messages))
 	}
 
 	// Check the first message (with variable substitution)
-	firstMessage := messages[0]
-	if firstMessage["role"] != "user" {
-		t.Errorf("Expected role 'user', got '%s'", firstMessage["role"])
+	firstMessage := promptResponse.Messages[0]
+	if firstMessage.Role != "user" {
+		t.Errorf("Expected role 'user', got '%s'", firstMessage.Role)
 	}
 
 	// Check content format
-	content, ok := firstMessage["content"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected content to be a map, got %T", firstMessage["content"])
+	if firstMessage.Content.Type != "text" {
+		t.Errorf("Expected content type 'text', got '%v'", firstMessage.Content.Type)
 	}
-
-	// Check content fields
-	if content["type"] != "text" {
-		t.Errorf("Expected content type 'text', got '%v'", content["type"])
-	}
-	if content["text"] != "Tell me about Go programming." {
-		t.Errorf("Expected content text 'Tell me about Go programming.', got '%v'", content["text"])
+	if firstMessage.Content.Text != "Tell me about Go programming." {
+		t.Errorf("Expected content text 'Tell me about Go programming.', got '%v'", firstMessage.Content.Text)
 	}
 
 	// Test missing required argument
@@ -320,26 +309,22 @@ func TestPromptList(t *testing.T) {
 		t.Fatalf("ProcessPromptList() error = %v", err)
 	}
 
-	// Check the result
-	resultMap, ok := result.(map[string]interface{})
+	// Check the result - should be a structured response
+	promptListResponse, ok := result.(*server.PromptListResponse)
 	if !ok {
-		t.Fatalf("Expected result to be a map, got %T", result)
+		t.Fatalf("Expected result to be a *PromptListResponse, got %T", result)
 	}
 
 	// Check the prompts
-	prompts, ok := resultMap["prompts"].([]map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected prompts to be a slice of maps, got %T", resultMap["prompts"])
-	}
-	if len(prompts) != 3 {
-		t.Errorf("Expected 3 prompts, got %d", len(prompts))
+	if len(promptListResponse.Prompts) != 3 {
+		t.Errorf("Expected 3 prompts, got %d", len(promptListResponse.Prompts))
 	}
 
 	// Check if second prompt has arguments
-	var promptWithArgs map[string]interface{}
-	for _, p := range prompts {
-		if p["name"] == "prompt2" {
-			promptWithArgs = p
+	var promptWithArgs *server.PromptInfo
+	for i := range promptListResponse.Prompts {
+		if promptListResponse.Prompts[i].Name == "prompt2" {
+			promptWithArgs = &promptListResponse.Prompts[i]
 			break
 		}
 	}
@@ -348,45 +333,28 @@ func TestPromptList(t *testing.T) {
 		t.Fatal("prompt2 not found in prompts list")
 	}
 
-	args, ok := promptWithArgs["arguments"].([]server.PromptArgument)
-	if !ok {
-		// This is acceptable since the JSON marshaling might make it a different type
-		t.Logf("Arguments not in expected format, got %T", promptWithArgs["arguments"])
-	} else if len(args) == 0 {
+	if len(promptWithArgs.Arguments) == 0 {
 		t.Errorf("Expected at least one argument for prompt2, got none")
 	}
 
 	// Check prompt information
-	for _, prompt := range prompts {
-		name, ok := prompt["name"].(string)
-		if !ok {
-			t.Errorf("Expected name to be a string, got %T", prompt["name"])
-			continue
-		}
-
-		// Check description
-		description, ok := prompt["description"].(string)
-		if !ok {
-			t.Errorf("Expected description to be a string, got %T", prompt["description"])
-			continue
-		}
-
+	for _, prompt := range promptListResponse.Prompts {
 		// Check description for each prompt
-		switch name {
+		switch prompt.Name {
 		case "prompt1":
-			if description != "First prompt" {
-				t.Errorf("Expected description 'First prompt', got '%s'", description)
+			if prompt.Description != "First prompt" {
+				t.Errorf("Expected description 'First prompt', got '%s'", prompt.Description)
 			}
 		case "prompt2":
-			if description != "Second prompt" {
-				t.Errorf("Expected description 'Second prompt', got '%s'", description)
+			if prompt.Description != "Second prompt" {
+				t.Errorf("Expected description 'Second prompt', got '%s'", prompt.Description)
 			}
 		case "prompt3":
-			if description != "Third prompt" {
-				t.Errorf("Expected description 'Third prompt', got '%s'", description)
+			if prompt.Description != "Third prompt" {
+				t.Errorf("Expected description 'Third prompt', got '%s'", prompt.Description)
 			}
 		default:
-			t.Errorf("Unexpected prompt name: %s", name)
+			t.Errorf("Unexpected prompt name: %s", prompt.Name)
 		}
 	}
 }

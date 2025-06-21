@@ -865,20 +865,18 @@ func (s *serverImpl) ProcessInitialize(ctx *Context) (interface{}, error) {
 		})
 	}()
 
-	// Build the response according to MCP specification
-	response := map[string]interface{}{
-		"protocolVersion": protocolVersion,
-		"capabilities":    capabilities,
-		"serverInfo": map[string]interface{}{
-			"name":    s.name,
-			"version": "1.0.0",
-		},
+	// Build the response according to MCP specification using structured types
+	serverInfo := ServerInfo{
+		Name:    s.name,
+		Version: "1.0.0",
 	}
+
+	response := NewInitializeResponse(protocolVersion, serverInfo, capabilities)
 
 	// Add optional instructions field if needed (available in 2025-03-26 and draft)
 	if protocolVersion == "2025-03-26" || protocolVersion == "draft" {
 		// Could add instructions here if needed
-		// response["instructions"] = "Optional instructions for the client"
+		// response.Instructions = "Optional instructions for the client"
 	}
 
 	return response, nil
@@ -915,7 +913,7 @@ func (s *serverImpl) ProcessShutdown(ctx *Context) (interface{}, error) {
 		time.Sleep(100 * time.Millisecond)
 		// TODO: Implement clean shutdown
 	}()
-	return map[string]interface{}{"success": true}, nil
+	return NewShutdownResponse(true), nil
 }
 
 // Run starts the server and blocks until it exits.
@@ -1139,36 +1137,19 @@ func (s *serverImpl) ListTools() ([]mcp.Tool, error) {
 	}
 
 	// Convert the result to the expected format
-	resultMap, ok := result.(map[string]interface{})
+	toolListResponse, ok := result.(*ToolListResponse)
 	if !ok {
 		return nil, fmt.Errorf("unexpected result format from ProcessToolList")
 	}
 
-	toolsInterface, ok := resultMap["tools"]
-	if !ok {
-		return nil, fmt.Errorf("tools field not found in ProcessToolList result")
-	}
-
-	toolsSlice, ok := toolsInterface.([]map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("tools field has unexpected format")
-	}
-
 	// Convert to mcp.Tool slice
-	tools := make([]mcp.Tool, 0, len(toolsSlice))
-	for _, toolMap := range toolsSlice {
+	tools := make([]mcp.Tool, 0, len(toolListResponse.Tools))
+	for _, toolInfo := range toolListResponse.Tools {
 		tool := mcp.Tool{
-			Name:        getString(toolMap, "name"),
-			Description: getString(toolMap, "description"),
-			InputSchema: getMap(toolMap, "inputSchema"),
-			Annotations: getMap(toolMap, "annotations"),
-		}
-
-		// Handle OutputSchema if present (for draft spec compatibility)
-		if outputSchema, exists := toolMap["outputSchema"]; exists {
-			if outputSchemaMap, ok := outputSchema.(map[string]interface{}); ok {
-				tool.OutputSchema = outputSchemaMap
-			}
+			Name:        toolInfo.Name,
+			Description: toolInfo.Description,
+			InputSchema: getMapFromInterface(toolInfo.InputSchema),
+			Annotations: toolInfo.Annotations,
 		}
 
 		tools = append(tools, tool)
@@ -1195,30 +1176,20 @@ func (s *serverImpl) ListResources() ([]mcp.Resource, error) {
 	}
 
 	// Convert the result to the expected format
-	resultMap, ok := result.(map[string]interface{})
+	resourceListResponse, ok := result.(*ResourceListResponse)
 	if !ok {
 		return nil, fmt.Errorf("unexpected result format from ProcessResourceList")
 	}
 
-	resourcesInterface, ok := resultMap["resources"]
-	if !ok {
-		return nil, fmt.Errorf("resources field not found in ProcessResourceList result")
-	}
-
-	resourcesSlice, ok := resourcesInterface.([]map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("resources field has unexpected format")
-	}
-
 	// Convert to mcp.Resource slice
-	resources := make([]mcp.Resource, 0, len(resourcesSlice))
-	for _, resourceMap := range resourcesSlice {
+	resources := make([]mcp.Resource, 0, len(resourceListResponse.Resources))
+	for _, resourceInfo := range resourceListResponse.Resources {
 		resource := mcp.Resource{
-			URI:         getString(resourceMap, "uri"),
-			Name:        getString(resourceMap, "name"),
-			Description: getString(resourceMap, "description"),
-			MimeType:    getString(resourceMap, "mimeType"),
-			Annotations: getMap(resourceMap, "annotations"),
+			URI:         resourceInfo.URI,
+			Name:        resourceInfo.Name,
+			Description: resourceInfo.Description,
+			MimeType:    resourceInfo.MimeType,
+			Annotations: nil, // ResourceInfo doesn't have annotations
 		}
 
 		resources = append(resources, resource)
@@ -1245,46 +1216,32 @@ func (s *serverImpl) ListPrompts() ([]mcp.Prompt, error) {
 	}
 
 	// Convert the result to the expected format
-	resultMap, ok := result.(map[string]interface{})
+	promptListResponse, ok := result.(*PromptListResponse)
 	if !ok {
 		return nil, fmt.Errorf("unexpected result format from ProcessPromptList")
 	}
 
-	promptsInterface, ok := resultMap["prompts"]
-	if !ok {
-		return nil, fmt.Errorf("prompts field not found in ProcessPromptList result")
-	}
-
-	promptsSlice, ok := promptsInterface.([]map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("prompts field has unexpected format")
-	}
-
 	// Convert to mcp.Prompt slice
-	prompts := make([]mcp.Prompt, 0, len(promptsSlice))
-	for _, promptMap := range promptsSlice {
+	prompts := make([]mcp.Prompt, 0, len(promptListResponse.Prompts))
+	for _, promptInfo := range promptListResponse.Prompts {
 		prompt := mcp.Prompt{
-			Name:        getString(promptMap, "name"),
-			Description: getString(promptMap, "description"),
-			Annotations: getMap(promptMap, "annotations"),
+			Name:        promptInfo.Name,
+			Description: promptInfo.Description,
+			Annotations: nil, // PromptInfo doesn't have annotations
 		}
 
-		// Handle arguments if present
-		if argsInterface, exists := promptMap["arguments"]; exists {
-			if argsSlice, ok := argsInterface.([]interface{}); ok {
-				arguments := make([]mcp.PromptArgument, 0, len(argsSlice))
-				for _, argInterface := range argsSlice {
-					if argMap, ok := argInterface.(map[string]interface{}); ok {
-						arg := mcp.PromptArgument{
-							Name:        getString(argMap, "name"),
-							Description: getString(argMap, "description"),
-							Required:    getBool(argMap, "required"),
-						}
-						arguments = append(arguments, arg)
-					}
+		// Convert arguments from PromptArgument to mcp.PromptArgument
+		if len(promptInfo.Arguments) > 0 {
+			arguments := make([]mcp.PromptArgument, 0, len(promptInfo.Arguments))
+			for _, arg := range promptInfo.Arguments {
+				mcpArg := mcp.PromptArgument{
+					Name:        arg.Name,
+					Description: arg.Description,
+					Required:    arg.Required,
 				}
-				prompt.Arguments = arguments
+				arguments = append(arguments, mcpArg)
 			}
+			prompt.Arguments = arguments
 		}
 
 		prompts = append(prompts, prompt)
@@ -1319,6 +1276,13 @@ func getBool(m map[string]interface{}, key string) bool {
 		}
 	}
 	return false
+}
+
+func getMapFromInterface(val interface{}) map[string]interface{} {
+	if mapVal, ok := val.(map[string]interface{}); ok {
+		return mapVal
+	}
+	return nil
 }
 
 // sendCapabilityNotification sends a single notification for a capability that changed
