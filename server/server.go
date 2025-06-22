@@ -470,6 +470,9 @@ type serverImpl struct {
 
 // CapabilityCache manages the caching and change tracking of server capabilities
 type CapabilityCache struct {
+	// mu protects concurrent access to the capability cache
+	mu sync.RWMutex
+
 	// Flags to track if capabilities have changed since last notification
 	toolsChanged     bool
 	resourcesChanged bool
@@ -491,29 +494,39 @@ func NewCapabilityCache() *CapabilityCache {
 
 // MarkToolsChanged marks that tools have changed and should trigger a notification
 func (c *CapabilityCache) MarkToolsChanged() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.toolsChanged = true
 	c.hasTools = true
 }
 
 // MarkResourcesChanged marks that resources have changed and should trigger a notification
 func (c *CapabilityCache) MarkResourcesChanged() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.resourcesChanged = true
 	c.hasResources = true
 }
 
 // MarkPromptsChanged marks that prompts have changed and should trigger a notification
 func (c *CapabilityCache) MarkPromptsChanged() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.promptsChanged = true
 	c.hasPrompts = true
 }
 
 // QueueNotification adds a notification to be sent after client initialization
 func (c *CapabilityCache) QueueNotification(notification []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.pendingNotifications = append(c.pendingNotifications, notification)
 }
 
 // GetPendingNotifications returns and clears all pending notifications
 func (c *CapabilityCache) GetPendingNotifications() [][]byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	notifications := c.pendingNotifications
 	c.pendingNotifications = [][]byte{}
 	return notifications
@@ -521,6 +534,8 @@ func (c *CapabilityCache) GetPendingNotifications() [][]byte {
 
 // ResetChangeFlags resets all change tracking flags
 func (c *CapabilityCache) ResetChangeFlags() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.toolsChanged = false
 	c.resourcesChanged = false
 	c.promptsChanged = false
@@ -851,15 +866,22 @@ func (s *serverImpl) ProcessInitialize(ctx *Context) (interface{}, error) {
 		"logging": map[string]interface{}{},
 	}
 
+	// Check capabilities with proper mutex protection
+	s.mu.RLock()
+	hasPrompts := len(s.prompts) > 0
+	hasResources := len(s.resources) > 0
+	hasTools := len(s.tools) > 0
+	s.mu.RUnlock()
+
 	// Add prompts capability if we have any registered
-	if len(s.prompts) > 0 {
+	if hasPrompts {
 		capabilities["prompts"] = map[string]interface{}{
 			"listChanged": true,
 		}
 	}
 
 	// Add resources capability if we have any registered
-	if len(s.resources) > 0 {
+	if hasResources {
 		capabilities["resources"] = map[string]interface{}{
 			"subscribe":   true,
 			"listChanged": true,
@@ -867,7 +889,7 @@ func (s *serverImpl) ProcessInitialize(ctx *Context) (interface{}, error) {
 	}
 
 	// Add tools capability if we have any registered
-	if len(s.tools) > 0 {
+	if hasTools {
 		capabilities["tools"] = map[string]interface{}{
 			"listChanged": true,
 		}
@@ -1064,36 +1086,55 @@ func (s *serverImpl) sendNotification(method string, params interface{}) {
 // handleInitializedNotification processes the initialized notification from the client
 // and sends any pending notifications that were queued during the initialization phase.
 func (s *serverImpl) handleInitializedNotification() {
-	// Set initialized and get what we need - no lock needed
+	// Set initialized with proper mutex protection
+	s.mu.Lock()
 	s.initialized = true
+	s.mu.Unlock()
+
 	pendingNotifications := s.capabilityCache.GetPendingNotifications()
 	s.capabilityCache.ResetChangeFlags()
 
 	s.logger.Debug("client initialized, processing pending notifications",
 		"count", len(pendingNotifications))
 
+	// Get all necessary data with proper mutex protection
+	s.mu.RLock()
+	toolCount := len(s.tools)
+	resourceCount := len(s.resources)
+	promptCount := len(s.prompts)
+	serverName := s.name
+	protocolVersion := s.protocolVersion
+	eventSubject := s.events
+	logger := s.logger
+	s.mu.RUnlock()
+
 	// Publish server initialized event without holding locks
 	go func() {
 		evt := events.ServerInitializedEvent{
-			ServerName:      s.name,
-			ProtocolVersion: s.protocolVersion,
-			ToolCount:       len(s.tools),
-			ResourceCount:   len(s.resources),
-			PromptCount:     len(s.prompts),
+			ServerName:      serverName,
+			ProtocolVersion: protocolVersion,
+			ToolCount:       toolCount,
+			ResourceCount:   resourceCount,
+			PromptCount:     promptCount,
 			InitializedAt:   time.Now(),
 			Metadata:        make(map[string]any),
 		}
 
-		if err := events.Publish[events.ServerInitializedEvent](s.events, events.TopicServerInitialized, evt); err != nil {
-			s.logger.Debug("failed to publish server initialized event", "error", err)
+		if err := events.Publish[events.ServerInitializedEvent](eventSubject, events.TopicServerInitialized, evt); err != nil {
+			logger.Debug("failed to publish server initialized event", "error", err)
 		}
 	}()
 
+	// Get transport with mutex protection for sending notifications
+	s.mu.RLock()
+	transport := s.transport
+	s.mu.RUnlock()
+
 	// Send any pending notifications without holding locks
 	for _, notification := range pendingNotifications {
-		if s.transport != nil {
-			if err := s.transport.Send(notification); err != nil {
-				s.logger.Error("failed to send pending notification after initialization", "error", err)
+		if transport != nil {
+			if err := transport.Send(notification); err != nil {
+				logger.Error("failed to send pending notification after initialization", "error", err)
 			}
 		}
 	}

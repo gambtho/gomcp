@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -192,6 +193,7 @@ type ProcessMonitor struct {
 	shutdownFunc  func()
 	exitFunc      func(int) // Configurable exit function for testing
 	stopChan      chan struct{}
+	mu            sync.RWMutex
 	monitorActive bool
 }
 
@@ -216,11 +218,14 @@ func (pm *ProcessMonitor) SetExitFunc(exitFunc func(int)) {
 // Start begins monitoring the parent process and stdin.
 // This should be called once when the server starts.
 func (pm *ProcessMonitor) Start() {
+	pm.mu.Lock()
 	if pm.monitorActive {
+		pm.mu.Unlock()
 		return // Already monitoring
 	}
 
 	pm.monitorActive = true
+	pm.mu.Unlock()
 
 	// Start parent PID monitoring
 	go pm.monitorParentProcess()
@@ -239,11 +244,14 @@ func (pm *ProcessMonitor) Start() {
 
 // Stop stops the process monitor.
 func (pm *ProcessMonitor) Stop() {
+	pm.mu.Lock()
 	if !pm.monitorActive {
+		pm.mu.Unlock()
 		return
 	}
 
 	pm.monitorActive = false
+	pm.mu.Unlock()
 	close(pm.stopChan)
 
 	if pm.logger != nil {
@@ -348,11 +356,14 @@ func (pm *ProcessMonitor) setupSignalHandlers() {
 
 // gracefulShutdown performs a graceful shutdown.
 func (pm *ProcessMonitor) gracefulShutdown(reason string) {
+	pm.mu.Lock()
 	if !pm.monitorActive {
+		pm.mu.Unlock()
 		return // Already shutting down
 	}
 
 	pm.monitorActive = false
+	pm.mu.Unlock()
 
 	if pm.logger != nil {
 		pm.logger.Info("initiating graceful shutdown", "reason", reason)

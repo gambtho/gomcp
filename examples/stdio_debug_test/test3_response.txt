@@ -1,0 +1,3 @@
+{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}
+{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}
+{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Echo back the input message","inputSchema":{"properties":{"message":{"type":"string"}},"required":["message"],"type":"object"}},{"name":"test","description":"Simple test tool","inputSchema":{"properties":{},"required":[],"type":"object"}}]}}
