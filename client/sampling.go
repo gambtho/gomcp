@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/localrivet/gomcp/mcp"
@@ -430,7 +431,10 @@ func CreateTextMessage(role, text string) SamplingMessage {
 	if role != "user" && role != "assistant" {
 		// Log a warning but create the message anyway to avoid breaking existing code
 		// In a future version, this could be changed to return an error
-		fmt.Printf("Warning: sampling messages should only use 'user' and 'assistant' roles, not '%s'. Use systemPrompt parameter for system instructions.\n", role)
+		// Use slog.Default() instead of fmt.Printf to avoid polluting stdout in stdio transport
+		slog.Default().Warn("sampling messages should only use 'user' and 'assistant' roles",
+			"role", role,
+			"suggestion", "use systemPrompt parameter for system instructions")
 	}
 
 	return SamplingMessage{
@@ -446,7 +450,10 @@ func CreateImageMessage(role, imageData, mimeType string) SamplingMessage {
 	// Validate the role
 	if role != "user" && role != "assistant" {
 		// Log a warning but create the message anyway to avoid breaking existing code
-		fmt.Printf("Warning: sampling messages should only use 'user' and 'assistant' roles, not '%s'. Use systemPrompt parameter for system instructions.\n", role)
+		// Use slog.Default() instead of fmt.Printf to avoid polluting stdout in stdio transport
+		slog.Default().Warn("sampling messages should only use 'user' and 'assistant' roles",
+			"role", role,
+			"suggestion", "use systemPrompt parameter for system instructions")
 	}
 
 	return SamplingMessage{
@@ -463,7 +470,10 @@ func CreateAudioMessage(role, audioData, mimeType string) SamplingMessage {
 	// Validate the role
 	if role != "user" && role != "assistant" {
 		// Log a warning but create the message anyway to avoid breaking existing code
-		fmt.Printf("Warning: sampling messages should only use 'user' and 'assistant' roles, not '%s'. Use systemPrompt parameter for system instructions.\n", role)
+		// Use slog.Default() instead of fmt.Printf to avoid polluting stdout in stdio transport
+		slog.Default().Warn("sampling messages should only use 'user' and 'assistant' roles",
+			"role", role,
+			"suggestion", "use systemPrompt parameter for system instructions")
 	}
 
 	return SamplingMessage{
