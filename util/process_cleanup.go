@@ -287,30 +287,14 @@ func (pm *ProcessMonitor) monitorParentProcess() {
 // monitorStdin watches for stdin closure (POLLHUP equivalent).
 // When the parent process exits, stdin gets closed/disconnected.
 func (pm *ProcessMonitor) monitorStdin() {
-	// Create a buffer to attempt reading from stdin
-	buffer := make([]byte, 1)
-
 	for {
 		select {
 		case <-pm.stopChan:
 			return
 		default:
-			// Set a read deadline to avoid blocking forever
-			os.Stdin.SetReadDeadline(time.Now().Add(1 * time.Second))
-
-			// Try to read from stdin
-			n, err := os.Stdin.Read(buffer)
-
-			// Reset deadline
-			os.Stdin.SetReadDeadline(time.Time{})
-
+			// Check if stdin is still valid without consuming data
+			_, err := os.Stdin.Stat()
 			if err != nil {
-				// Check if it's a timeout (expected)
-				if os.IsTimeout(err) {
-					continue
-				}
-
-				// EOF or other error indicates stdin closed
 				if pm.logger != nil {
 					pm.logger.Info("stdin closed or error, shutting down",
 						"error", err.Error())
@@ -319,18 +303,21 @@ func (pm *ProcessMonitor) monitorStdin() {
 				return
 			}
 
-			// If we actually read data, we need to handle it properly
-			// For MCP servers, this shouldn't happen during monitoring
-			// as the main readLoop should be handling stdin
-			if n > 0 {
-				if pm.logger != nil {
-					pm.logger.Debug("unexpected data read during stdin monitoring",
-						"bytes", n)
+			// Also check if we can get the file descriptor
+			if stdinFd := int(os.Stdin.Fd()); stdinFd >= 0 {
+				var stat syscall.Stat_t
+				if err := syscall.Fstat(stdinFd, &stat); err != nil {
+					if pm.logger != nil {
+						pm.logger.Info("stdin file descriptor invalid, shutting down",
+							"error", err.Error())
+					}
+					pm.gracefulShutdown("stdin closed")
+					return
 				}
 			}
 
-			// Brief sleep to avoid CPU spinning
-			time.Sleep(100 * time.Millisecond)
+			// Sleep before next check
+			time.Sleep(1 * time.Second)
 		}
 	}
 }
