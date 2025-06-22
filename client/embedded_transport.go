@@ -50,12 +50,8 @@ func (t *EmbeddedTransport) ConnectWithContext(ctx context.Context) error {
 		return err
 	}
 
-	// Set up message handler for processing responses and notifications
-	t.transport.SetMessageHandler(func(message []byte) ([]byte, error) {
-		return t.handleMessage(message)
-	})
-
 	// Start response processing goroutine
+	// The embedded transport's internal switchboard will handle message routing
 	go t.processResponses()
 
 	return nil
@@ -170,11 +166,8 @@ func (t *EmbeddedTransport) handleMessage(message []byte) ([]byte, error) {
 		t.mu.RUnlock()
 
 		if handler != nil {
-			var paramsBytes []byte
-			if params, ok := jsonMsg["params"]; ok && params != nil {
-				paramsBytes, _ = json.Marshal(params)
-			}
-			go handler(method, paramsBytes)
+			// Pass the full message, not just params
+			go handler(method, message)
 		}
 	}
 
@@ -183,15 +176,22 @@ func (t *EmbeddedTransport) handleMessage(message []byte) ([]byte, error) {
 
 // processResponses continuously processes responses from the embedded transport.
 func (t *EmbeddedTransport) processResponses() {
-	for {
-		// Receive messages from the transport
-		message, err := t.transport.Receive()
-		if err != nil {
-			// Transport closed or error, exit
-			return
-		}
+	// Get the response channel (this is where server sends responses to client)
+	responseCh := t.transport.GetResponseChannel()
 
-		// Process the message
-		t.handleMessage(message)
+	for {
+		select {
+		case message, ok := <-responseCh:
+			if !ok {
+				// Channel closed, exit
+				return
+			}
+			// Skip empty messages to avoid JSON parsing errors
+			if len(message) == 0 {
+				continue
+			}
+			// Process the message
+			t.handleMessage(message)
+		}
 	}
 }

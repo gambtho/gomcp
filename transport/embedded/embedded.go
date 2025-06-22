@@ -14,7 +14,7 @@ import (
 	"github.com/localrivet/gomcp/transport"
 )
 
-// Transport implements the transport.Transport interface for in-process communication.
+// Transport represents an embedded transport for in-process communication.
 type Transport struct {
 	transport.BaseTransport
 
@@ -34,6 +34,9 @@ type Transport struct {
 	// Configuration
 	bufferSize int
 	timeout    time.Duration
+
+	// Track if this is a server transport (processes messages) or client transport (just routes)
+	isServer bool
 }
 
 // Option configures the embedded transport
@@ -87,6 +90,7 @@ func NewTransportPair(options ...Option) (*Transport, *Transport) {
 		done:           done,
 		bufferSize:     100,
 		timeout:        30 * time.Second,
+		isServer:       true,
 	}
 
 	// Create client transport (channels are swapped so client and server communicate)
@@ -98,6 +102,7 @@ func NewTransportPair(options ...Option) (*Transport, *Transport) {
 		done:           done,
 		bufferSize:     100,
 		timeout:        30 * time.Second,
+		isServer:       false,
 	}
 
 	// Apply options to both
@@ -137,9 +142,61 @@ func (t *Transport) Start() error {
 
 	t.started = true
 
-	// Start message processing goroutine
-	go t.messageLoop()
+	// Only start message processing on server transport
+	// Client transport just does direct Send()/Receive()
+	if t.isServer {
+		go t.processMessages()
+	}
 
+	return nil
+}
+
+// processMessages handles message processing when a handler is set
+func (t *Transport) processMessages() {
+	for {
+		select {
+		case message := <-t.clientToServer:
+			// Skip empty messages to avoid JSON parsing errors
+			if len(message) == 0 {
+				continue
+			}
+
+			// Always try to process the message
+			go func(msg []byte) {
+				response, err := t.HandleMessage(msg)
+				if err != nil {
+					// Send error back
+					select {
+					case t.serverErrors <- err:
+					case <-t.done:
+					default:
+					}
+					return
+				}
+				if response != nil {
+					// Send response back
+					select {
+					case t.serverToClient <- response:
+					case <-t.done:
+					default:
+					}
+				}
+			}(message)
+		case <-t.done:
+			return
+		}
+	}
+}
+
+// getHandler safely gets the message handler (removed - not needed)
+func (t *Transport) getHandler() transport.MessageHandler {
+	return nil
+}
+
+// GetMessageHandler returns the current message handler (removed - use HandleMessage directly)
+func (t *Transport) GetMessageHandler() transport.MessageHandler {
+	// We can't access the private handler field, but we don't need to
+	// The embedded transport works through direct channel routing
 	return nil
 }
 
@@ -211,49 +268,6 @@ func (t *Transport) Receive() ([]byte, error) {
 	}
 }
 
-// messageLoop processes incoming messages using the message handler
-func (t *Transport) messageLoop() {
-	for {
-		select {
-		case message := <-t.clientToServer:
-			// Process message with handler
-			go func(msg []byte) {
-				response, err := t.HandleMessage(msg)
-				if err != nil {
-					// Send error to client
-					select {
-					case t.serverErrors <- err:
-					case <-t.done:
-					default:
-						// Error channel full, log and continue
-						if logger := t.GetLogger(); logger != nil {
-							logger.Error("embedded transport: error channel full", "error", err)
-						}
-					}
-					return
-				}
-
-				if response != nil {
-					// Send response back
-					select {
-					case t.serverToClient <- response:
-					case <-t.done:
-					default:
-						// Response channel full, log and continue
-						if logger := t.GetLogger(); logger != nil {
-							logger.Error("embedded transport: response channel full")
-						}
-					}
-				}
-			}(message)
-		case <-t.done:
-			return
-		}
-	}
-}
-
-// Note: GetMessageHandler is not needed - we use HandleMessage directly from BaseTransport
-
 // IsStarted returns whether the transport is started
 func (t *Transport) IsStarted() bool {
 	t.mu.RLock()
@@ -276,5 +290,11 @@ func (t *Transport) GetChannelStats() map[string]int {
 
 // GetResponseChannel returns the channel for receiving responses (for client use)
 func (t *Transport) GetResponseChannel() <-chan []byte {
-	return t.serverToClient
+	if t.isServer {
+		// Server should not be reading responses, but if needed, it would read from serverToClient
+		return t.serverToClient
+	} else {
+		// Client reads responses from clientToServer (which is actually the server's serverToClient)
+		return t.clientToServer
+	}
 }
