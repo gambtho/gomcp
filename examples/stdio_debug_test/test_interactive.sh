@@ -3,31 +3,52 @@
 echo "🔍 Interactive stdio MCP debug test..."
 echo "======================================"
 
-echo "📦 Server already built"
+# Build the server
+echo "📦 Building debug server..."
+go build -o debug_server server.go
 
-echo "🚀 Testing with proper MCP client simulation..."
+echo "🚀 Starting server in background..."
 
-# Test with a more realistic client interaction
+# Create named pipes for bidirectional communication
+mkfifo server_input server_output 2>/dev/null || true
+
+# Start server with named pipes
+./debug_server < server_input > server_output 2> server_stderr.txt &
+SERVER_PID=$!
+
+# Give server time to start
+sleep 1
+
+echo "📤 Sending initialize request..."
+
+# Send initialize request (keep pipe open)
 {
     echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{"roots":{"listChanged":true},"sampling":{}},"clientInfo":{"name":"debug-client","version":"1.0.0"}}}'
-    sleep 0.5
+    sleep 2
     echo '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
-    sleep 0.5
-    echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
     sleep 1
-} | ./debug_server > interactive_output.txt 2> interactive_stderr.txt
+    echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+    sleep 2
+} > server_input &
+INPUT_PID=$!
 
-echo "📥 Server responses:"
-if [ -s interactive_output.txt ]; then
-    cat interactive_output.txt
-else
-    echo "(no responses)"
-fi
+echo "📥 Reading server responses..."
+
+# Read responses for a few seconds
+timeout 5s cat server_output &
+OUTPUT_PID=$!
+
+# Wait for responses
+sleep 6
 
 echo ""
-echo "📋 Server stderr during interactive test:"
-if [ -s interactive_stderr.txt ]; then
-    cat interactive_stderr.txt
+echo "🧹 Cleaning up..."
+kill $SERVER_PID $INPUT_PID $OUTPUT_PID 2>/dev/null
+wait $SERVER_PID $INPUT_PID $OUTPUT_PID 2>/dev/null
+
+echo "📋 Server stderr:"
+if [ -s server_stderr.txt ]; then
+    cat server_stderr.txt
 else
     echo "(no stderr)"
 fi
@@ -35,11 +56,13 @@ fi
 echo ""
 echo "📋 Server application logs:"
 if [ -s debug_server.log ]; then
-    echo "All logs:"
     cat debug_server.log
 else
     echo "(no log file)"
 fi
 
+# Cleanup
+rm -f server_input server_output
+
 echo ""
-echo "🔍 Interactive test completed!"
+echo "🔍 Interactive test completed!" 

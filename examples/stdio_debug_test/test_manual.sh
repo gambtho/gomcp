@@ -7,64 +7,55 @@ echo "=========================================="
 echo "📦 Building debug server..."
 go build -o debug_server server.go
 
-echo "🚀 Starting debug server and testing manually..."
+# Start the server in the background and capture its output
+echo "🚀 Starting debug server..."
+./debug_server > server_output.txt 2> server_stderr.txt &
+SERVER_PID=$!
 
-# Test 1: Just run the server and see what happens
-echo ""
-echo "Test 1: Starting server to see initial output..."
-timeout 3s ./debug_server > test1_output.txt 2> test1_stderr.txt || true
+# Give the server a moment to start
+sleep 1
 
-echo "📄 Server stdout (first 3 seconds):"
-if [ -s test1_output.txt ]; then
-    cat test1_output.txt
+echo "📤 Sending initialize request..."
+
+# Send initialize request
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{"roots":{"listChanged":true},"sampling":{}},"clientInfo":{"name":"debug-client","version":"1.0.0"}}}' | ./debug_server > init_response.txt 2> init_stderr.txt &
+INIT_PID=$!
+
+# Wait for response or timeout
+sleep 2
+
+echo "📥 Checking initialize response..."
+if [ -s init_response.txt ]; then
+    echo "✅ Got initialize response:"
+    cat init_response.txt
+    echo ""
 else
-    echo "(no output)"
+    echo "❌ No initialize response received"
 fi
 
-echo ""
-echo "📄 Server stderr (first 3 seconds):"
-if [ -s test1_stderr.txt ]; then
-    cat test1_stderr.txt
-else
-    echo "(no stderr)"
-fi
-
-# Test 2: Send initialize and see response
-echo ""
-echo "Test 2: Sending initialize request..."
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{"roots":{"listChanged":true},"sampling":{}},"clientInfo":{"name":"debug-client","version":"1.0.0"}}}' > init_request.json
-
-echo "📤 Sending:"
-cat init_request.json
-echo ""
-
-# Send the request and capture response
-timeout 5s ./debug_server < init_request.json > test2_output.txt 2> test2_stderr.txt || true
-
-echo "📥 Server response:"
-if [ -s test2_output.txt ]; then
-    cat test2_output.txt
-else
-    echo "(no response)"
-fi
-
-echo ""
-echo "📄 Server stderr during init:"
-if [ -s test2_stderr.txt ]; then
-    cat test2_stderr.txt
-else
-    echo "(no stderr)"
-fi
-
-# Check log file
-echo ""
-echo "📋 Server application logs:"
+echo "📋 Checking server logs..."
 if [ -s debug_server.log ]; then
+    echo "📄 Server log contents:"
     cat debug_server.log
-else
-    echo "(no log file created)"
+    echo ""
 fi
 
-echo ""
-echo "🔍 Test completed!"
-echo "This shows us exactly what the server outputs and any errors." 
+if [ -s server_stderr.txt ]; then
+    echo "⚠️  Server stderr:"
+    cat server_stderr.txt
+    echo ""
+fi
+
+echo "🧹 Cleaning up..."
+kill $SERVER_PID 2>/dev/null
+kill $INIT_PID 2>/dev/null
+wait $SERVER_PID 2>/dev/null
+wait $INIT_PID 2>/dev/null
+
+echo "🔍 Test completed. Check the output files for details."
+echo "Files created:"
+echo "  - server_output.txt (server stdout)"
+echo "  - server_stderr.txt (server stderr)"  
+echo "  - init_response.txt (initialize response)"
+echo "  - init_stderr.txt (init client stderr)"
+echo "  - debug_server.log (server application logs)" 
